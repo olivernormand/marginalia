@@ -1,9 +1,13 @@
-import { Play } from "lucide-react";
+import { Play, Pause } from "lucide-react";
 import { PodcastEpisode } from "@/lib/types";
 
 interface EpisodeCardProps {
   episode: PodcastEpisode;
   index: number;
+  isPlaying?: boolean;
+  isCurrentEpisode?: boolean;
+  onPlay?: (episode: PodcastEpisode) => void;
+  podcastArtwork?: string | null;
 }
 
 function formatDuration(seconds: number | null): string {
@@ -31,14 +35,46 @@ function stripHtml(html: string | null): string {
   return html.replace(/<[^>]*>/g, "").slice(0, 200);
 }
 
-export default function EpisodeCard({ episode, index }: EpisodeCardProps) {
+export default function EpisodeCard({
+  episode,
+  index,
+  isPlaying = false,
+  isCurrentEpisode = false,
+  onPlay,
+  podcastArtwork,
+}: EpisodeCardProps) {
+  const handlePlayClick = () => {
+    if (onPlay && episode.audio_url) {
+      onPlay(episode);
+    }
+  };
+
+  const artworkUrl = episode.artwork_url || podcastArtwork;
+
   return (
-    <div className="flex gap-4 p-4 hover:bg-gray-50 transition-colors rounded-lg group">
-      <div className="flex-shrink-0 w-10 text-right text-gray-400 text-sm pt-1">
-        {index + 1}
-      </div>
+    <div
+      className={`flex gap-4 p-4 hover:bg-gray-50 transition-colors rounded-lg group cursor-pointer ${
+        isCurrentEpisode ? "bg-gray-50" : ""
+      }`}
+      onClick={handlePlayClick}
+    >
+      {artworkUrl ? (
+        <img
+          src={artworkUrl}
+          alt=""
+          className="flex-shrink-0 w-16 h-16 rounded-md object-cover"
+        />
+      ) : (
+        <div className="flex-shrink-0 w-10 text-right text-gray-400 text-sm pt-1">
+          {index + 1}
+        </div>
+      )}
       <div className="flex-1 min-w-0">
-        <h3 className="text-lg font-serif text-gray-900 mb-1 group-hover:text-gray-700">
+        <h3
+          className={`text-lg font-serif mb-1 group-hover:text-gray-700 ${
+            isCurrentEpisode ? "text-gray-900 font-medium" : "text-gray-900"
+          }`}
+        >
           {episode.title}
         </h3>
         {episode.description && (
@@ -58,10 +94,22 @@ export default function EpisodeCard({ episode, index }: EpisodeCardProps) {
       </div>
       {episode.audio_url && (
         <button
-          className="flex-shrink-0 w-10 h-10 rounded-full bg-gray-100 group-hover:bg-gray-200 flex items-center justify-center transition-colors"
-          title="Play episode"
+          className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+            isCurrentEpisode && isPlaying
+              ? "bg-gray-900 text-white"
+              : "bg-gray-100 group-hover:bg-gray-200 text-gray-600"
+          }`}
+          title={isPlaying && isCurrentEpisode ? "Pause episode" : "Play episode"}
+          onClick={(e) => {
+            e.stopPropagation();
+            handlePlayClick();
+          }}
         >
-          <Play className="text-gray-600" size={16} />
+          {isCurrentEpisode && isPlaying ? (
+            <Pause size={16} />
+          ) : (
+            <Play size={16} className="ml-0.5" />
+          )}
         </button>
       )}
     </div>

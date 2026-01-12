@@ -4,8 +4,9 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { PodcastFeed } from "@/lib/types";
+import { PodcastFeed, PodcastEpisode } from "@/lib/types";
 import EpisodeCard from "@/components/EpisodeCard";
+import AudioPlayer from "@/components/AudioPlayer";
 
 const API_BASE = "http://localhost:8000";
 
@@ -18,6 +19,8 @@ function PodcastContent() {
   const [feed, setFeed] = useState<PodcastFeed | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentEpisode, setCurrentEpisode] = useState<PodcastEpisode | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
 
   useEffect(() => {
     if (!feedUrl) {
@@ -45,6 +48,20 @@ function PodcastContent() {
 
     fetchFeed();
   }, [feedUrl]);
+
+  const handleEpisodePlay = (episode: PodcastEpisode) => {
+    if (currentEpisode?.guid === episode.guid && isPlaying) {
+      setIsPlaying(false);
+    } else {
+      setCurrentEpisode(episode);
+      setIsPlaying(true);
+    }
+  };
+
+  const handlePlayerClose = () => {
+    setCurrentEpisode(null);
+    setIsPlaying(false);
+  };
 
   return (
     <>
@@ -95,17 +112,30 @@ function PodcastContent() {
             <h2 className="text-xl font-serif mb-4 text-gray-900">
               Episodes ({feed.episodes.length})
             </h2>
-            <div className="space-y-2">
+            <div className={`space-y-2 ${currentEpisode ? "pb-24" : ""}`}>
               {feed.episodes.map((episode, index) => (
                 <EpisodeCard
                   key={episode.guid || index}
                   episode={episode}
                   index={index}
+                  isPlaying={isPlaying}
+                  isCurrentEpisode={currentEpisode?.guid === episode.guid}
+                  onPlay={handleEpisodePlay}
+                  podcastArtwork={feed.artwork_url || artworkUrl}
                 />
               ))}
             </div>
           </div>
         </>
+      )}
+
+      {currentEpisode && currentEpisode.audio_url && (
+        <AudioPlayer
+          audioUrl={currentEpisode.audio_url}
+          episodeTitle={currentEpisode.title}
+          podcastTitle={feed?.title}
+          onClose={handlePlayerClose}
+        />
       )}
     </>
   );

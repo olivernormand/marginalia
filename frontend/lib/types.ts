@@ -24,6 +24,7 @@ export interface PodcastEpisode {
   guid: string | null;
   pub_date: string | null;
   duration_seconds: number | null;
+  artwork_url: string | null;
 }
 
 export interface PodcastFeed {
