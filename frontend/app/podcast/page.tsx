@@ -1,7 +1,7 @@
 "use client";
 
-import { Suspense, useEffect, useState, useRef, useCallback } from "react";
-import { useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState, useRef } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { PodcastFeed, PodcastEpisode } from "@/lib/types";
@@ -13,6 +13,7 @@ const EPISODES_PER_BATCH = 20;
 
 function PodcastContent() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const feedUrl = searchParams.get("feedUrl");
   const podcastName = searchParams.get("name");
   const artworkUrl = searchParams.get("artwork");
@@ -89,6 +90,17 @@ function PodcastContent() {
     }
   };
 
+  const handleEpisodeClick = (episode: PodcastEpisode) => {
+    // Navigate to episode page with episode data
+    const params = new URLSearchParams({
+      episode: JSON.stringify(episode),
+      podcastTitle: feed?.title || podcastName || "",
+      podcastArtwork: feed?.artwork_url || artworkUrl || "",
+      feedUrl: feedUrl || "",
+    });
+    router.push(`/episode?${params.toString()}`);
+  };
+
   const handlePlayerClose = () => {
     setCurrentEpisode(null);
     setIsPlaying(false);
@@ -132,7 +144,7 @@ function PodcastContent() {
                 <p className="text-gray-500 mb-3">{feed.author}</p>
               )}
               {feed.description && (
-                <p className="text-sm text-gray-600 line-clamp-3">
+                <p className="text-sm text-gray-600 line-clamp-4">
                   {feed.description}
                 </p>
               )}
@@ -152,6 +164,7 @@ function PodcastContent() {
                   isPlaying={isPlaying}
                   isCurrentEpisode={currentEpisode?.guid === episode.guid}
                   onPlay={handleEpisodePlay}
+                  onEpisodeClick={handleEpisodeClick}
                   podcastArtwork={feed.artwork_url || artworkUrl}
                 />
               ))}

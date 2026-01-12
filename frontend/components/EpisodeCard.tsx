@@ -33,7 +33,21 @@ function formatDate(dateString: string | null): string {
 
 function stripHtml(html: string | null): string {
   if (!html) return "";
-  return html.replace(/<[^>]*>/g, "").slice(0, 200);
+  // Remove HTML tags
+  let text = html.replace(/<[^>]*>/g, " ");
+  // Decode common HTML entities
+  text = text
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&#8212;/g, "—")
+    .replace(/&#8211;/g, "–");
+  // Collapse whitespace and trim
+  text = text.replace(/\s+/g, " ").trim();
+  return text.slice(0, 300);
 }
 
 export default function EpisodeCard({
@@ -87,7 +101,7 @@ export default function EpisodeCard({
           {episode.title}
         </h3>
         {episode.description && (
-          <p className="text-sm text-gray-500 mb-2 line-clamp-2">
+          <p className="text-sm text-gray-500 mb-2 line-clamp-3">
             {stripHtml(episode.description)}
           </p>
         )}
