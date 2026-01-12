@@ -3,6 +3,13 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.cache import (
+    get_cached_feed,
+    get_cached_search,
+    get_cache_stats,
+    set_cached_feed,
+    set_cached_search,
+)
 from backend.models.schemas import (
     PodcastEpisodeResponse,
     PodcastFeedResponse,
@@ -33,9 +40,20 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.get("/cache-stats")
+async def cache_stats() -> dict:
+    """Get cache statistics for debugging."""
+    return get_cache_stats()
+
+
 @app.get("/search", response_model_by_alias=False)
 async def search(q: str = Query(..., min_length=1)) -> list[PodcastSearchResult]:
-    """Search for podcasts via Apple Podcasts API."""
+    """Search for podcasts via Apple Podcasts API (cached for 30 min)."""
+    # Check cache first
+    cached = get_cached_search(q)
+    if cached is not None:
+        return [PodcastSearchResult(**item) for item in cached]
+
     async with httpx.AsyncClient() as client:
         response = await client.get(
             APPLE_PODCASTS_SEARCH_URL,
@@ -51,18 +69,23 @@ async def search(q: str = Query(..., min_length=1)) -> list[PodcastSearchResult]
         data = response.json()
 
     results = []
+    raw_results = []
     for item in data.get("results", []):
         try:
             results.append(PodcastSearchResult(**item))
+            raw_results.append(item)
         except Exception:
             continue
+
+    # Cache the raw results
+    set_cached_search(q, raw_results)
 
     return results
 
 
 @app.get("/feed")
 async def get_feed(url: str = Query(..., min_length=1)) -> PodcastFeedResponse:
-    """Fetch and parse a podcast RSS feed.
+    """Fetch and parse a podcast RSS feed (cached for 30 min).
 
     Args:
         url: The URL of the RSS feed to fetch.
@@ -70,6 +93,11 @@ async def get_feed(url: str = Query(..., min_length=1)) -> PodcastFeedResponse:
     Returns:
         Parsed podcast feed with episodes.
     """
+    # Check cache first
+    cached = get_cached_feed(url)
+    if cached is not None:
+        return PodcastFeedResponse(**cached)
+
     async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
         try:
             response = await client.get(url)
@@ -95,7 +123,7 @@ async def get_feed(url: str = Query(..., min_length=1)) -> PodcastFeedResponse:
             detail=str(e),
         ) from e
 
-    return PodcastFeedResponse(
+    feed_response = PodcastFeedResponse(
         title=feed.title,
         description=feed.description,
         author=feed.author,
@@ -113,6 +141,11 @@ async def get_feed(url: str = Query(..., min_length=1)) -> PodcastFeedResponse:
             for ep in feed.episodes
         ],
     )
+
+    # Cache the response as dict
+    set_cached_feed(url, feed_response.model_dump(mode="json"))
+
+    return feed_response
 
 
 def main() -> None:
