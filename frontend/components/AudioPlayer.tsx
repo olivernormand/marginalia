@@ -15,6 +15,7 @@ interface AudioPlayerProps {
   episodeTitle: string;
   podcastTitle?: string;
   onClose?: () => void;
+  onPlayingChange?: (isPlaying: boolean) => void;
 }
 
 const PLAYBACK_SPEEDS = [0.5, 1, 1.25, 1.5, 2];
@@ -35,6 +36,7 @@ export default function AudioPlayer({
   episodeTitle,
   podcastTitle,
   onClose,
+  onPlayingChange,
 }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -76,6 +78,11 @@ export default function AudioPlayer({
       audioRef.current.volume = isMuted ? 0 : volume;
     }
   }, [volume, isMuted]);
+
+  // Notify parent of playing state changes
+  useEffect(() => {
+    onPlayingChange?.(isPlaying);
+  }, [isPlaying, onPlayingChange]);
 
   // Auto-play when a new episode is selected
   useEffect(() => {

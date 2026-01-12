@@ -7,6 +7,7 @@ interface EpisodeCardProps {
   isPlaying?: boolean;
   isCurrentEpisode?: boolean;
   onPlay?: (episode: PodcastEpisode) => void;
+  onEpisodeClick?: (episode: PodcastEpisode) => void;
   podcastArtwork?: string | null;
 }
 
@@ -41,11 +42,19 @@ export default function EpisodeCard({
   isPlaying = false,
   isCurrentEpisode = false,
   onPlay,
+  onEpisodeClick,
   podcastArtwork,
 }: EpisodeCardProps) {
-  const handlePlayClick = () => {
+  const handlePlayClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
     if (onPlay && episode.audio_url) {
       onPlay(episode);
+    }
+  };
+
+  const handleCardClick = () => {
+    if (onEpisodeClick) {
+      onEpisodeClick(episode);
     }
   };
 
@@ -56,7 +65,7 @@ export default function EpisodeCard({
       className={`flex gap-4 p-4 hover:bg-gray-50 transition-colors rounded-lg group cursor-pointer ${
         isCurrentEpisode ? "bg-gray-50" : ""
       }`}
-      onClick={handlePlayClick}
+      onClick={handleCardClick}
     >
       {artworkUrl ? (
         <img
@@ -100,10 +109,7 @@ export default function EpisodeCard({
               : "bg-gray-100 group-hover:bg-gray-200 text-gray-600"
           }`}
           title={isPlaying && isCurrentEpisode ? "Pause episode" : "Play episode"}
-          onClick={(e) => {
-            e.stopPropagation();
-            handlePlayClick();
-          }}
+          onClick={handlePlayClick}
         >
           {isCurrentEpisode && isPlaying ? (
             <Pause size={16} />

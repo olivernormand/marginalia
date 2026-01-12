@@ -175,6 +175,7 @@ function PodcastContent() {
           episodeTitle={currentEpisode.title}
           podcastTitle={feed?.title}
           onClose={handlePlayerClose}
+          onPlayingChange={setIsPlaying}
         />
       )}
     </>
