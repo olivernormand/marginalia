@@ -3,6 +3,27 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class PodcastEpisodeResponse(BaseModel):
+    """Pydantic model for a podcast episode from RSS feed."""
+
+    title: str
+    description: str | None = None
+    audio_url: str | None = None
+    guid: str | None = None
+    pub_date: datetime | None = None
+    duration_seconds: int | None = None
+
+
+class PodcastFeedResponse(BaseModel):
+    """Pydantic model for a parsed podcast RSS feed."""
+
+    title: str
+    description: str | None = None
+    author: str | None = None
+    artwork_url: str | None = None
+    episodes: list[PodcastEpisodeResponse]
+
+
 class PodcastSearchResult(BaseModel):
     """Pydantic model for Apple Podcasts API response."""
 

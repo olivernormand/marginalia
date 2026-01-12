@@ -3,7 +3,12 @@ import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.models.schemas import PodcastSearchResult
+from backend.models.schemas import (
+    PodcastEpisodeResponse,
+    PodcastFeedResponse,
+    PodcastSearchResult,
+)
+from backend.rss import parse_rss_feed
 
 app = FastAPI(
     title="Marginalia API",
@@ -13,7 +18,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=["http://localhost:3000", "http://localhost:3001"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -53,6 +58,60 @@ async def search(q: str = Query(..., min_length=1)) -> list[PodcastSearchResult]
             continue
 
     return results
+
+
+@app.get("/feed")
+async def get_feed(url: str = Query(..., min_length=1)) -> PodcastFeedResponse:
+    """Fetch and parse a podcast RSS feed.
+
+    Args:
+        url: The URL of the RSS feed to fetch.
+
+    Returns:
+        Parsed podcast feed with episodes.
+    """
+    async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
+        try:
+            response = await client.get(url)
+        except httpx.RequestError as e:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to fetch RSS feed: {e}",
+            ) from e
+
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail=f"RSS feed returned status {response.status_code}",
+            )
+
+        content = response.text
+
+    try:
+        feed = parse_rss_feed(content)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e),
+        ) from e
+
+    return PodcastFeedResponse(
+        title=feed.title,
+        description=feed.description,
+        author=feed.author,
+        artwork_url=feed.artwork_url,
+        episodes=[
+            PodcastEpisodeResponse(
+                title=ep.title,
+                description=ep.description,
+                audio_url=ep.audio_url,
+                guid=ep.guid,
+                pub_date=ep.pub_date,
+                duration_seconds=ep.duration_seconds,
+            )
+            for ep in feed.episodes
+        ],
+    )
 
 
 def main() -> None:
