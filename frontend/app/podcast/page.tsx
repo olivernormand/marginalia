@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
@@ -9,6 +9,7 @@ import EpisodeCard from "@/components/EpisodeCard";
 import AudioPlayer from "@/components/AudioPlayer";
 
 const API_BASE = "http://localhost:8000";
+const EPISODES_PER_BATCH = 20;
 
 function PodcastContent() {
   const searchParams = useSearchParams();
@@ -21,6 +22,8 @@ function PodcastContent() {
   const [error, setError] = useState<string | null>(null);
   const [currentEpisode, setCurrentEpisode] = useState<PodcastEpisode | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [visibleCount, setVisibleCount] = useState(EPISODES_PER_BATCH);
+  const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!feedUrl) {
@@ -39,6 +42,7 @@ function PodcastContent() {
         }
         const data = await response.json();
         setFeed(data);
+        setVisibleCount(EPISODES_PER_BATCH); // Reset for new feed
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred");
       } finally {
@@ -48,6 +52,33 @@ function PodcastContent() {
 
     fetchFeed();
   }, [feedUrl]);
+
+  // Intersection Observer for infinite scroll
+  useEffect(() => {
+    if (!feed || visibleCount >= feed.episodes.length) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((prev) =>
+            Math.min(prev + EPISODES_PER_BATCH, feed.episodes.length)
+          );
+        }
+      },
+      { rootMargin: "200px" } // Load more before reaching the very bottom
+    );
+
+    const sentinel = sentinelRef.current;
+    if (sentinel) {
+      observer.observe(sentinel);
+    }
+
+    return () => {
+      if (sentinel) {
+        observer.unobserve(sentinel);
+      }
+    };
+  }, [feed, visibleCount]);
 
   const handleEpisodePlay = (episode: PodcastEpisode) => {
     if (currentEpisode?.guid === episode.guid && isPlaying) {
@@ -113,7 +144,7 @@ function PodcastContent() {
               Episodes ({feed.episodes.length})
             </h2>
             <div className={`space-y-2 ${currentEpisode ? "pb-24" : ""}`}>
-              {feed.episodes.map((episode, index) => (
+              {feed.episodes.slice(0, visibleCount).map((episode, index) => (
                 <EpisodeCard
                   key={episode.guid || index}
                   episode={episode}
@@ -124,6 +155,15 @@ function PodcastContent() {
                   podcastArtwork={feed.artwork_url || artworkUrl}
                 />
               ))}
+              {/* Sentinel for infinite scroll */}
+              {visibleCount < feed.episodes.length && (
+                <div
+                  ref={sentinelRef}
+                  className="py-4 text-center text-gray-400 text-sm"
+                >
+                  Loading more episodes...
+                </div>
+              )}
             </div>
           </div>
         </>
