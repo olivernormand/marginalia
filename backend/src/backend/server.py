@@ -1,6 +1,7 @@
 import httpx
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.middleware.cors import CORSMiddleware
 
 from backend.models.schemas import PodcastSearchResult
 
@@ -8,6 +9,14 @@ app = FastAPI(
     title="Marginalia API",
     description="Backend API for Marginalia podcast app",
     version="0.1.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 APPLE_PODCASTS_SEARCH_URL = "https://itunes.apple.com/search"
@@ -19,7 +28,7 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/search")
+@app.get("/search", response_model_by_alias=False)
 async def search(q: str = Query(..., min_length=1)) -> list[PodcastSearchResult]:
     """Search for podcasts via Apple Podcasts API."""
     async with httpx.AsyncClient() as client:
@@ -41,7 +50,6 @@ async def search(q: str = Query(..., min_length=1)) -> list[PodcastSearchResult]
         try:
             results.append(PodcastSearchResult(**item))
         except Exception:
-            # Skip items that don't match our schema (e.g., missing feedUrl)
             continue
 
     return results
