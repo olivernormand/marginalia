@@ -12,6 +12,7 @@ class PodcastEpisodeResponse(BaseModel):
     guid: str | None = None
     pub_date: datetime | None = None
     duration_seconds: int | None = None
+    artwork_url: str | None = None
 
 
 class PodcastFeedResponse(BaseModel):

@@ -108,6 +108,7 @@ async def get_feed(url: str = Query(..., min_length=1)) -> PodcastFeedResponse:
                 guid=ep.guid,
                 pub_date=ep.pub_date,
                 duration_seconds=ep.duration_seconds,
+                artwork_url=ep.artwork_url,
             )
             for ep in feed.episodes
         ],

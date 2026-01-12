@@ -17,6 +17,7 @@ class PodcastEpisode:
     guid: str | None
     pub_date: datetime | None
     duration_seconds: int | None
+    artwork_url: str | None
 
 
 @dataclass
@@ -122,6 +123,13 @@ def parse_rss_feed(xml_content: str) -> PodcastFeed:
         duration_str = duration_elem.get_text(strip=True) if duration_elem else None
         duration_seconds = parse_duration(duration_str)
 
+        # Episode artwork (falls back to media:thumbnail if no itunes:image)
+        ep_image_elem = item.find("itunes:image")
+        ep_artwork_url = ep_image_elem.get("href") if ep_image_elem else None
+        if not ep_artwork_url:
+            media_thumb = item.find("media:thumbnail")
+            ep_artwork_url = media_thumb.get("url") if media_thumb else None
+
         episodes.append(
             PodcastEpisode(
                 title=ep_title,
@@ -130,6 +138,7 @@ def parse_rss_feed(xml_content: str) -> PodcastFeed:
                 guid=guid,
                 pub_date=pub_date,
                 duration_seconds=duration_seconds,
+                artwork_url=ep_artwork_url,
             )
         )
 
