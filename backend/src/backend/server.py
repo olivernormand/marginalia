@@ -3,6 +3,7 @@ import os
 import time
 from pathlib import Path
 
+import anthropic
 import httpx
 import uvicorn
 from dotenv import load_dotenv
@@ -12,11 +13,17 @@ from fastapi.middleware.cors import CORSMiddleware
 # Load .env file from backend directory
 load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
+from backend import database as db
 from backend.models.schemas import (
     PodcastEpisodeResponse,
     PodcastFeedResponse,
     PodcastInfoResponse,
     PodcastSearchResult,
+    TranscribeRequest,
+    TranscriptAnalysis,
+    TranscriptionJobResponse,
+    TranscriptResponse,
+    TranscriptWord,
     TrendingPodcast,
 )
 from backend.rss import parse_rss_feed
@@ -43,6 +50,13 @@ app.add_middleware(
 PODCAST_INDEX_API_KEY = os.getenv("PODCAST_INDEX_API_KEY", "")
 PODCAST_INDEX_API_SECRET = os.getenv("PODCAST_INDEX_API_SECRET", "")
 PODCAST_INDEX_BASE_URL = "https://api.podcastindex.org/api/1.0"
+
+# AssemblyAI API
+ASSEMBLYAI_API_KEY = os.getenv("ASSEMBLYAI_API_KEY", "")
+ASSEMBLYAI_BASE_URL = "https://api.assemblyai.com/v2"
+
+# Anthropic API (for transcript analysis)
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 
 
 def get_podcast_index_headers() -> dict[str, str]:
@@ -255,6 +269,329 @@ async def get_feed(url: str = Query(..., min_length=1)) -> PodcastFeedResponse:
                 artwork_url=ep.artwork_url,
             )
             for ep in feed.episodes
+        ],
+    )
+
+
+# --- Transcript analysis ---
+
+
+async def analyze_transcript(
+    words: list[dict],
+    audio_duration_ms: int,
+    podcast_title: str | None = None,
+    podcast_description: str | None = None,
+    episode_title: str | None = None,
+    episode_description: str | None = None,
+) -> TranscriptAnalysis:
+    """Analyze transcript to find content bounds and identify speakers.
+
+    Uses Claude to detect intro/outro music and identify speaker names.
+    Returns default values (no filtering, no labels) if analysis fails.
+    """
+    if not words:
+        return TranscriptAnalysis(
+            content_start_ms=0,
+            content_end_ms=None,
+            speaker_labels={},
+        )
+
+    # Get first and last 5 minutes of content
+    five_min_ms = 5 * 60 * 1000
+    first_words = [w for w in words if w["start"] < five_min_ms]
+    last_words = [w for w in words if w["start"] > audio_duration_ms - five_min_ms]
+
+    def format_chunks(word_list: list[dict]) -> str:
+        """Group words into speaker chunks for display."""
+        if not word_list:
+            return "(no content)"
+
+        chunks = []
+        current_chunk = {
+            "speaker": word_list[0].get("speaker"),
+            "start": word_list[0]["start"],
+            "end": word_list[0]["end"],
+            "words": [word_list[0]["text"]],
+        }
+
+        for word in word_list[1:]:
+            gap = word["start"] - current_chunk["end"]
+            if word.get("speaker") != current_chunk["speaker"] or gap > 2000:
+                chunks.append(current_chunk)
+                current_chunk = {
+                    "speaker": word.get("speaker"),
+                    "start": word["start"],
+                    "end": word["end"],
+                    "words": [word["text"]],
+                }
+            else:
+                current_chunk["end"] = word["end"]
+                current_chunk["words"].append(word["text"])
+
+        chunks.append(current_chunk)
+
+        return "\n".join(
+            f"[{c['start'] / 1000:.1f}s] Speaker {c['speaker']}: {' '.join(c['words'])}"
+            for c in chunks
+        )
+
+    # Build metadata section
+    metadata_parts = []
+    if podcast_title:
+        metadata_parts.append(f"Podcast: {podcast_title}")
+    if podcast_description:
+        metadata_parts.append(f"Podcast description: {podcast_description[:500]}")
+    if episode_title:
+        metadata_parts.append(f"Episode: {episode_title}")
+    if episode_description:
+        metadata_parts.append(f"Episode description: {episode_description[:500]}")
+
+    metadata_section = (
+        "\n".join(metadata_parts) if metadata_parts else "No metadata available"
+    )
+
+    prompt = f"""Analyze this podcast transcript to identify:
+1. Where the actual content begins (after any intro music, jingles, or produced intros)
+2. Where the actual content ends (before any outro music, credits, or ad reads)
+3. The real names of the speakers, if identifiable from context
+
+## Podcast/Episode Info
+{metadata_section}
+
+## First 5 minutes of transcript
+{format_chunks(first_words)}
+
+## Last 5 minutes of transcript
+{format_chunks(last_words)}
+
+## Instructions
+- For content_start_ms: Return the timestamp (in milliseconds) where hosts actually begin speaking substantive content. Skip intro music, jingles, and produced intros, but keep all host conversation and banter.
+- For content_end_ms: Return the timestamp (in milliseconds) where the main content ends. Skip outro music, end credits, and trailing ad reads. Return null if content goes to the end.
+- For speaker_labels: Map speaker IDs (like "A", "B") to real names if you can identify them from the podcast/episode info or from how they introduce themselves. Use empty dict if unknown.
+
+Return 0 for content_start_ms if content starts immediately.
+Return null for content_end_ms if content goes to the end."""
+
+    try:
+        client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
+        response = await client.beta.messages.parse(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=1024,
+            betas=["structured-outputs-2025-11-13"],
+            messages=[{"role": "user", "content": prompt}],
+            output_format=TranscriptAnalysis,
+        )
+
+        return response.parsed_output
+
+    except Exception as e:
+        # Log error but don't fail the transcription
+        print(f"Transcript analysis failed: {e}")
+        return TranscriptAnalysis(
+            content_start_ms=0,
+            content_end_ms=None,
+            speaker_labels={},
+        )
+
+
+# --- Transcription endpoints ---
+
+
+@app.post("/transcribe")
+async def submit_transcription(request: TranscribeRequest) -> TranscriptionJobResponse:
+    """Submit a transcription job for an episode.
+
+    If the episode has already been transcribed or is in progress, returns existing job.
+    """
+    # Check if already exists
+    existing = db.get_transcription_by_episode(request.episode_guid)
+    if existing:
+        return TranscriptionJobResponse(
+            id=existing["id"],
+            episode_guid=existing["episode_guid"],
+            status=existing["status"],
+            error_message=existing["error_message"],
+        )
+
+    # Submit to AssemblyAI
+    headers = {
+        "authorization": ASSEMBLYAI_API_KEY,
+        "content-type": "application/json",
+    }
+
+    async with httpx.AsyncClient() as client:
+        response = await client.post(
+            f"{ASSEMBLYAI_BASE_URL}/transcript",
+            headers=headers,
+            json={
+                "audio_url": request.audio_url,
+                "speaker_labels": True,
+            },
+        )
+
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to submit transcription job to AssemblyAI",
+            )
+
+        job = response.json()
+
+    # Store in database with metadata for later analysis
+    db.create_transcription(
+        job_id=job["id"],
+        episode_guid=request.episode_guid,
+        podcast_id=request.podcast_id,
+        audio_url=request.audio_url,
+        status=job["status"],
+        podcast_title=request.podcast_title,
+        podcast_description=request.podcast_description,
+        episode_title=request.episode_title,
+        episode_description=request.episode_description,
+    )
+
+    return TranscriptionJobResponse(
+        id=job["id"],
+        episode_guid=request.episode_guid,
+        status=job["status"],
+    )
+
+
+@app.get("/transcribe/{job_id}")
+async def poll_transcription(job_id: str) -> TranscriptionJobResponse:
+    """Poll transcription job status.
+
+    If completed, fetches and stores the full transcript.
+    """
+    # Check database first
+    existing = db.get_transcription_by_id(job_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Transcription job not found")
+
+    # If already completed or errored, return from DB
+    if existing["status"] in ("completed", "error"):
+        return TranscriptionJobResponse(
+            id=existing["id"],
+            episode_guid=existing["episode_guid"],
+            status=existing["status"],
+            error_message=existing["error_message"],
+        )
+
+    # Poll AssemblyAI
+    headers = {"authorization": ASSEMBLYAI_API_KEY}
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{ASSEMBLYAI_BASE_URL}/transcript/{job_id}",
+            headers=headers,
+        )
+
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to poll AssemblyAI",
+            )
+
+        result = response.json()
+
+    status = result["status"]
+
+    # Update database based on status
+    if status == "completed":
+        # Analyze transcript to find content bounds and speaker names
+        analysis = await analyze_transcript(
+            words=result["words"],
+            audio_duration_ms=result["audio_duration"],
+            podcast_title=existing.get("podcast_title"),
+            podcast_description=existing.get("podcast_description"),
+            episode_title=existing.get("episode_title"),
+            episode_description=existing.get("episode_description"),
+        )
+
+        db.complete_transcription(
+            job_id=job_id,
+            audio_duration=result["audio_duration"],
+            confidence=result["confidence"],
+            words=result["words"],
+            content_start_ms=analysis.content_start_ms,
+            content_end_ms=analysis.content_end_ms,
+            speaker_labels=analysis.speaker_labels,
+        )
+    elif status == "error":
+        db.update_transcription_status(
+            job_id=job_id,
+            status="error",
+            error_message=result.get("error"),
+        )
+    else:
+        db.update_transcription_status(job_id=job_id, status=status)
+
+    return TranscriptionJobResponse(
+        id=job_id,
+        episode_guid=existing["episode_guid"],
+        status=status,
+        error_message=result.get("error"),
+    )
+
+
+@app.get("/transcript/{episode_guid}")
+async def get_transcript(episode_guid: str) -> TranscriptResponse:
+    """Get completed transcript for an episode."""
+    import json
+
+    existing = db.get_transcription_by_episode(episode_guid)
+    if not existing:
+        raise HTTPException(status_code=404, detail="Transcript not found")
+
+    if existing["status"] != "completed":
+        raise HTTPException(
+            status_code=404,
+            detail=f"Transcript not ready (status: {existing['status']})",
+        )
+
+    words_data = json.loads(existing["words_json"])
+    content_start_ms = existing.get("content_start_ms") or 0
+    content_end_ms = existing.get("content_end_ms")
+    speaker_labels = (
+        json.loads(existing["speaker_labels_json"])
+        if existing.get("speaker_labels_json")
+        else None
+    )
+
+    # Filter words to content bounds
+    filtered_words = [
+        w
+        for w in words_data
+        if w["start"] >= content_start_ms
+        and (content_end_ms is None or w["end"] <= content_end_ms)
+    ]
+
+    # Apply speaker labels if available
+    def get_speaker_name(speaker_id: str | None) -> str | None:
+        if speaker_id is None:
+            return None
+        if speaker_labels and speaker_id in speaker_labels:
+            return speaker_labels[speaker_id]
+        return speaker_id
+
+    return TranscriptResponse(
+        id=existing["id"],
+        episode_guid=existing["episode_guid"],
+        audio_url=existing["audio_url"],
+        audio_duration=existing["audio_duration"],
+        confidence=existing["confidence"],
+        content_start_ms=content_start_ms,
+        content_end_ms=content_end_ms,
+        speaker_labels=speaker_labels,
+        words=[
+            TranscriptWord(
+                text=w["text"],
+                start=w["start"],
+                end=w["end"],
+                confidence=w["confidence"],
+                speaker=get_speaker_name(w.get("speaker")),
+            )
+            for w in filtered_words
         ],
     )
 

@@ -15,6 +15,18 @@ Marginalia builds towards a seamless experience for listening to podcasts and ca
 
 ---
 
+## Current Status
+
+**Phase 1 is complete.** The app supports searching, browsing, and playing podcasts.
+
+**Key implementation differences from spec:**
+- Using **Podcast Index API** instead of Apple Podcasts API (open, free, better metadata)
+- Using **uv** for Python dependency management instead of Docker
+- No LRU caching except for trending podcasts (5min TTL) - kept simple for now
+- URLs use query params (`/podcast?id=123`) rather than path params (`/podcast/[id]`)
+
+---
+
 ## Tech Stack
 
 | Layer | Technology | Rationale |
@@ -493,19 +505,21 @@ CREATE INDEX idx_notes_podcast ON notes(podcast_id);
 
 ## Roadmap
 
-### Phase 1: Search + Browse + Play
+### Phase 1: Search + Browse + Play ✅
 **Goal:** Replicate core podcast app functionality without persistence.
 
-- [ ] Set up Next.js frontend with Tailwind + shadcn/ui
-- [ ] Set up FastAPI backend with Docker + docker-compose
-- [ ] Implement in-memory LRU cache (TTL 30min, ~500 entries)
-- [ ] Implement `/search` endpoint (Apple Podcasts API proxy)
-- [ ] Implement `/podcasts/{id}` endpoint (RSS feed fetching + parsing)
-- [ ] Build landing page with search box
-- [ ] Build search results page (grid of podcasts)
-- [ ] Build podcast detail page with episode list
-- [ ] Build episode player page with full audio controls
-- [ ] Test audio streaming, seeking, skip buttons, playback speed
+- [x] Set up Next.js frontend with Tailwind
+- [x] Set up FastAPI backend with uv
+- [x] Implement `/search` endpoint (via Podcast Index API)
+- [x] Implement `/podcast/{id}` endpoint (podcast info from Podcast Index)
+- [x] Implement `/feed` endpoint (RSS feed fetching + parsing)
+- [x] Implement `/trending` endpoint (with 5min cache)
+- [x] Build landing page with search + trending podcasts
+- [x] Build podcast detail page with episode list + episode search
+- [x] Build episode player page with full audio controls
+- [x] Audio streaming, seeking, skip ±15s/30s, playback speed, volume
+- [x] Infinite scroll for episode lists
+- [x] Media key sync (play/pause)
 
 **No Supabase, no ElevenLabs—pure search/browse/play.**
 
@@ -557,99 +571,79 @@ CREATE INDEX idx_notes_podcast ON notes(podcast_id);
 ## Local Development
 
 ### Prerequisites
-- Docker & Docker Compose
-- Node.js 18+ (for frontend dev outside Docker)
-- Python 3.11+ (for backend dev outside Docker)
+- Node.js 18+
+- Python 3.11+ with [uv](https://docs.astral.sh/uv/)
+- Podcast Index API credentials (free at https://podcastindex.org/)
 
 ### Environment Variables
 
 **Backend (`backend/.env`):**
 ```
-ELEVENLABS_API_KEY=your_key_here
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_KEY=your_anon_key_here
+PODCAST_INDEX_API_KEY=your_key_here
+PODCAST_INDEX_API_SECRET=your_secret_here
 ```
 
-**Frontend (`frontend/.env.local`):**
-```
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```
-
-### Running with Docker Compose
+### Running the App
 
 ```bash
-# Start all services
-docker-compose up
+# Terminal 1: Backend
+cd backend
+uv run backend
+
+# Terminal 2: Frontend
+cd frontend
+npm install
+npm run dev
 
 # Frontend: http://localhost:3000
 # Backend:  http://localhost:8000
 # API docs: http://localhost:8000/docs
 ```
 
-### Running Individually (Development)
-
-```bash
-# Backend
-cd backend
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --reload
-
-# Frontend
-cd frontend
-npm install
-npm run dev
-```
-
 ---
 
 ## Project Structure
 
+**Current (Phase 1):**
 ```
 marginalia/
 ├── README.md
-├── docker-compose.yml
 ├── backend/
-│   ├── Dockerfile
-│   ├── requirements.txt
-│   ├── main.py                 # FastAPI app entry
-│   ├── routers/
-│   │   ├── search.py           # /search endpoints
-│   │   ├── podcasts.py         # /podcasts endpoints
-│   │   ├── episodes.py         # /episodes endpoints
-│   │   ├── transcription.py    # transcription job endpoints
-│   │   └── notes.py            # /notes endpoints
+│   ├── pyproject.toml
+│   ├── .env                    # API credentials (not committed)
+│   └── src/backend/
+│       ├── server.py           # FastAPI app + endpoints
+│       ├── rss.py              # RSS feed parsing
+│       └── models/
+│           └── schemas.py      # Pydantic models
+└── frontend/
+    ├── package.json
+    ├── app/
+    │   ├── page.tsx            # Home (search + trending)
+    │   ├── podcast/page.tsx    # Podcast detail + episodes
+    │   └── episode/page.tsx    # Episode player
+    ├── components/
+    │   ├── Header.tsx
+    │   ├── SearchBar.tsx
+    │   ├── PodcastCard.tsx
+    │   ├── EpisodeCard.tsx
+    │   └── AudioPlayer.tsx
+    └── lib/
+        ├── config.ts           # API base URL
+        └── types.ts            # TypeScript interfaces
+```
+
+**Planned (Phase 2+):**
+```
+├── backend/
 │   ├── services/
-│   │   ├── apple_podcasts.py   # Apple API client
-│   │   ├── rss_parser.py       # RSS feed parsing
 │   │   ├── elevenlabs.py       # ElevenLabs Scribe client
 │   │   └── supabase.py         # Supabase client
-│   └── models/
-│       └── schemas.py          # Pydantic models
 ├── frontend/
-│   ├── Dockerfile
-│   ├── package.json
-│   ├── next.config.js
-│   ├── tailwind.config.js
 │   ├── components/
-│   │   ├── ui/                 # shadcn/ui components
-│   │   ├── AudioPlayer.tsx
 │   │   ├── Transcript.tsx
 │   │   ├── NoteModal.tsx
 │   │   └── NotesSidebar.tsx
-│   ├── app/
-│   │   ├── page.tsx            # Landing page
-│   │   ├── search/
-│   │   │   └── page.tsx        # Search results
-│   │   ├── podcast/
-│   │   │   └── [id]/
-│   │   │       └── page.tsx    # Podcast detail
-│   │   └── episode/
-│   │       └── [id]/
-│   │           └── page.tsx    # Episode player
-│   └── lib/
-│       └── api.ts              # API client functions
 └── supabase/
     └── migrations/             # SQL migration files
 ```

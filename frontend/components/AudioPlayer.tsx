@@ -16,6 +16,8 @@ interface AudioPlayerProps {
   podcastTitle?: string;
   onClose?: () => void;
   onPlayingChange?: (isPlaying: boolean) => void;
+  onTimeUpdate?: (currentTime: number) => void;
+  seekTo?: number | null; // When set, seeks to this time in seconds
 }
 
 const PLAYBACK_SPEEDS = [0.5, 1, 1.25, 1.5, 2];
@@ -37,6 +39,8 @@ export default function AudioPlayer({
   podcastTitle,
   onClose,
   onPlayingChange,
+  onTimeUpdate,
+  seekTo,
 }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -88,6 +92,20 @@ export default function AudioPlayer({
   useEffect(() => {
     onPlayingChange?.(isPlaying);
   }, [isPlaying, onPlayingChange]);
+
+  // Notify parent of time updates
+  useEffect(() => {
+    onTimeUpdate?.(currentTime);
+  }, [currentTime, onTimeUpdate]);
+
+  // Handle external seek requests
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (audio && seekTo !== null && seekTo !== undefined) {
+      audio.currentTime = seekTo;
+      setCurrentTime(seekTo);
+    }
+  }, [seekTo]);
 
   // Auto-play when a new episode is selected
   useEffect(() => {

@@ -1,12 +1,21 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Loader2 } from "lucide-react";
 import Link from "next/link";
-import { PodcastEpisode, PodcastFeed, PodcastInfo } from "@/lib/types";
+import {
+  PodcastEpisode,
+  PodcastFeed,
+  PodcastInfo,
+  Transcript,
+  TranscriptionJob,
+} from "@/lib/types";
 import { API_BASE } from "@/lib/config";
 import AudioPlayer from "@/components/AudioPlayer";
+import TranscriptView from "@/components/Transcript";
+
+const POLL_INTERVAL = 3000; // 3 seconds
 
 function EpisodeContent() {
   const searchParams = useSearchParams();
@@ -20,6 +29,18 @@ function EpisodeContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Transcription state
+  const [transcript, setTranscript] = useState<Transcript | null>(null);
+  const [transcriptionJob, setTranscriptionJob] =
+    useState<TranscriptionJob | null>(null);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [transcriptError, setTranscriptError] = useState<string | null>(null);
+
+  // Audio sync state
+  const [currentTime, setCurrentTime] = useState(0);
+  const [seekToTime, setSeekToTime] = useState<number | null>(null);
+
+  // Fetch episode data
   useEffect(() => {
     if (!podcastId || !guid) {
       setError("Missing podcast ID or episode ID");
@@ -62,6 +83,119 @@ function EpisodeContent() {
 
     fetchEpisode();
   }, [podcastId, guid]);
+
+  // Check for existing transcript on load
+  useEffect(() => {
+    if (!guid) return;
+
+    const checkTranscript = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/transcript/${encodeURIComponent(guid)}`);
+        if (response.ok) {
+          const data = await response.json();
+          setTranscript(data);
+        }
+      } catch {
+        // No transcript yet, that's fine
+      }
+    };
+
+    checkTranscript();
+  }, [guid]);
+
+  // Poll for transcription status
+  useEffect(() => {
+    if (!transcriptionJob || transcriptionJob.status === "completed" || transcriptionJob.status === "error") {
+      return;
+    }
+
+    const pollStatus = async () => {
+      try {
+        const response = await fetch(`${API_BASE}/transcribe/${transcriptionJob.id}`);
+        if (!response.ok) throw new Error("Failed to poll status");
+
+        const job: TranscriptionJob = await response.json();
+        setTranscriptionJob(job);
+
+        if (job.status === "completed" && guid) {
+          // Fetch the full transcript
+          const transcriptResponse = await fetch(
+            `${API_BASE}/transcript/${encodeURIComponent(guid)}`
+          );
+          if (transcriptResponse.ok) {
+            const data = await transcriptResponse.json();
+            setTranscript(data);
+          }
+          setIsTranscribing(false);
+        } else if (job.status === "error") {
+          setTranscriptError(job.error_message || "Transcription failed");
+          setIsTranscribing(false);
+        }
+      } catch (err) {
+        console.error("Poll error:", err);
+      }
+    };
+
+    const interval = setInterval(pollStatus, POLL_INTERVAL);
+    return () => clearInterval(interval);
+  }, [transcriptionJob, guid]);
+
+  const handleRequestTranscription = async () => {
+    if (!guid || !podcastId || !episode?.audio_url) return;
+
+    setIsTranscribing(true);
+    setTranscriptError(null);
+
+    // Strip HTML from descriptions for cleaner LLM input
+    const stripHtml = (html: string | null | undefined) => {
+      if (!html) return undefined;
+      return html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+    };
+
+    try {
+      const response = await fetch(`${API_BASE}/transcribe`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          episode_guid: guid,
+          podcast_id: parseInt(podcastId),
+          audio_url: episode.audio_url,
+          podcast_title: podcastInfo?.title,
+          podcast_description: stripHtml(podcastInfo?.description),
+          episode_title: episode.title,
+          episode_description: stripHtml(episode.description),
+        }),
+      });
+
+      if (!response.ok) throw new Error("Failed to start transcription");
+
+      const job: TranscriptionJob = await response.json();
+      setTranscriptionJob(job);
+
+      // If already completed (cached), fetch transcript
+      if (job.status === "completed") {
+        const transcriptResponse = await fetch(
+          `${API_BASE}/transcript/${encodeURIComponent(guid)}`
+        );
+        if (transcriptResponse.ok) {
+          const data = await transcriptResponse.json();
+          setTranscript(data);
+        }
+        setIsTranscribing(false);
+      }
+    } catch (err) {
+      setTranscriptError(
+        err instanceof Error ? err.message : "Failed to start transcription"
+      );
+      setIsTranscribing(false);
+    }
+  };
+
+  const handleSeek = useCallback((timeMs: number) => {
+    setSeekToTime(timeMs / 1000); // Convert to seconds
+    // Reset after a tick to allow re-seeking to same time
+    setTimeout(() => setSeekToTime(null), 100);
+  }, []);
 
   if (isLoading) {
     return (
@@ -134,9 +268,59 @@ function EpisodeContent() {
           </div>
         </div>
 
-        {/* Episode description - full, not truncated */}
+        {/* Transcript section */}
+        <div className="border-t border-gray-100 pt-6 mb-8">
+          <h2 className="text-lg font-serif mb-4 text-gray-900">Transcript</h2>
+
+          {transcript ? (
+            <TranscriptView
+              transcript={transcript}
+              currentTime={currentTime}
+              onSeek={handleSeek}
+            />
+          ) : (
+            <div className="bg-gray-50 rounded-lg p-8 text-center">
+              {isTranscribing ? (
+                <>
+                  <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-gray-400" />
+                  <p className="text-gray-500 mb-2">
+                    Transcribing episode...
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    Status: {transcriptionJob?.status || "starting"}
+                  </p>
+                </>
+              ) : transcriptError ? (
+                <>
+                  <p className="text-red-500 mb-4">{transcriptError}</p>
+                  <button
+                    onClick={handleRequestTranscription}
+                    className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
+                  >
+                    Retry Transcription
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-gray-500 mb-4">
+                    Transcript not yet available for this episode.
+                  </p>
+                  <button
+                    onClick={handleRequestTranscription}
+                    disabled={!episode.audio_url}
+                    className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Request Transcription
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Episode description */}
         {episode.description && (
-          <div className="border-t border-gray-100 pt-6 mb-8">
+          <div className="border-t border-gray-100 pt-6">
             <h2 className="text-lg font-serif mb-4 text-gray-900">
               About this episode
             </h2>
@@ -148,25 +332,6 @@ function EpisodeContent() {
             />
           </div>
         )}
-
-        {/* Transcript placeholder */}
-        <div className="border-t border-gray-100 pt-6">
-          <h2 className="text-lg font-serif mb-4 text-gray-900">Transcript</h2>
-          <div className="bg-gray-50 rounded-lg p-8 text-center">
-            <p className="text-gray-500 mb-4">
-              Transcript not yet available for this episode.
-            </p>
-            <button
-              className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
-              disabled
-            >
-              Request Transcription
-            </button>
-            <p className="text-xs text-gray-400 mt-2">
-              Coming soon in Phase 2
-            </p>
-          </div>
-        </div>
       </div>
 
       {/* Audio player */}
@@ -175,6 +340,8 @@ function EpisodeContent() {
           audioUrl={episode.audio_url}
           episodeTitle={episode.title}
           podcastTitle={podcastTitle || undefined}
+          onTimeUpdate={setCurrentTime}
+          seekTo={seekToTime}
         />
       )}
     </>

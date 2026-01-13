@@ -14,6 +14,8 @@ dependencies = [
     "beautifulsoup4>=4.12.0",
     "lxml>=5.0.0",
     "python-dotenv>=1.2.1",
+    "assemblyai>=0.48.4",
+    "anthropic>=0.75.0",
 ]
 
 [project.scripts]
