@@ -106,6 +106,20 @@ export interface Transcript {
   speaker_labels: Record<string, string> | null;
 }
 
+// --- Annotation types ---
+
+export interface Annotation {
+  id: string;
+  episode_guid: string;
+  paragraph_start_ms: number;
+  char_start: number;
+  char_end: number;
+  selected_text: string;
+  note: string | null;
+  color: string;
+  created_at: string;
+}
+
 // Helper to group words into utterances, split by paragraph boundaries
 export function getUtterances(
   words: TranscriptWord[],

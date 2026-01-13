@@ -13,7 +13,8 @@ import {
 } from "@/lib/types";
 import { API_BASE } from "@/lib/config";
 import AudioPlayer from "@/components/AudioPlayer";
-import TranscriptView from "@/components/Transcript";
+import TranscriptView, { SelectedText } from "@/components/Transcript";
+import AnnotationSidebar, { SavedAnnotation } from "@/components/AnnotationSidebar";
 
 const POLL_INTERVAL = 3000; // 3 seconds
 
@@ -39,6 +40,10 @@ function EpisodeContent() {
   // Audio sync state
   const [currentTime, setCurrentTime] = useState(0);
   const [seekToTime, setSeekToTime] = useState<number | null>(null);
+
+  // Annotation state
+  const [selectedText, setSelectedText] = useState<SelectedText | null>(null);
+  const [annotations, setAnnotations] = useState<SavedAnnotation[]>([]);
 
   // Fetch episode data
   useEffect(() => {
@@ -197,6 +202,33 @@ function EpisodeContent() {
     setTimeout(() => setSeekToTime(null), 100);
   }, []);
 
+  const handleTextSelect = useCallback((selection: SelectedText) => {
+    setSelectedText(selection);
+  }, []);
+
+  const handleSaveAnnotation = useCallback((note: string) => {
+    if (!selectedText) return;
+
+    const newAnnotation: SavedAnnotation = {
+      id: crypto.randomUUID(),
+      text: selectedText.text,
+      note,
+      speaker: selectedText.speaker,
+      startMs: selectedText.paragraph.start,
+    };
+
+    setAnnotations((prev) => [newAnnotation, ...prev]);
+    setSelectedText(null);
+  }, [selectedText]);
+
+  const handleCancelAnnotation = useCallback(() => {
+    setSelectedText(null);
+  }, []);
+
+  const handleDeleteAnnotation = useCallback((id: string) => {
+    setAnnotations((prev) => prev.filter((a) => a.id !== id));
+  }, []);
+
   if (isLoading) {
     return (
       <div className="text-center py-12 text-gray-500">
@@ -218,6 +250,8 @@ function EpisodeContent() {
 
   // Build back link with podcast ID
   const backUrl = podcastId ? `/podcast?id=${podcastId}` : "/";
+
+  const showSidebar = selectedText || annotations.length > 0;
 
   return (
     <>
@@ -288,15 +322,16 @@ function EpisodeContent() {
           <h2 className="text-xl font-serif mb-6 text-gray-900">Transcript</h2>
 
           {transcript ? (
-            <div className="max-w-2xl mx-auto">
+            <div className="max-w-2xl">
               <TranscriptView
                 transcript={transcript}
                 currentTime={currentTime}
                 onSeek={handleSeek}
+                onTextSelect={handleTextSelect}
               />
             </div>
           ) : (
-            <div className="max-w-2xl mx-auto py-12 text-center">
+            <div className="max-w-2xl py-12 text-center">
               {isTranscribing ? (
                 <>
                   <Loader2 className="w-6 h-6 animate-spin mx-auto mb-4 text-gray-400" />
@@ -333,6 +368,18 @@ function EpisodeContent() {
           )}
         </div>
       </div>
+
+      {/* Annotation sidebar */}
+      {showSidebar && (
+        <AnnotationSidebar
+          selectedText={selectedText}
+          annotations={annotations}
+          onSave={handleSaveAnnotation}
+          onCancel={handleCancelAnnotation}
+          onSeek={handleSeek}
+          onDelete={handleDeleteAnnotation}
+        />
+      )}
 
       {/* Audio player */}
       {episode.audio_url && (

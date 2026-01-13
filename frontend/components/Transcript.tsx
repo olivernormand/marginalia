@@ -1,11 +1,18 @@
 "use client";
 
-import { Transcript as TranscriptType, getUtterances } from "@/lib/types";
+import { Transcript as TranscriptType, getUtterances, UtteranceParagraph } from "@/lib/types";
+
+export interface SelectedText {
+  text: string;
+  paragraph: UtteranceParagraph;
+  speaker: string | null;
+}
 
 interface TranscriptProps {
   transcript: TranscriptType;
   currentTime: number; // in seconds
   onSeek: (timeMs: number) => void;
+  onTextSelect?: (selection: SelectedText) => void;
 }
 
 function formatTime(ms: number): string {
@@ -27,9 +34,23 @@ export default function Transcript({
   transcript,
   currentTime,
   onSeek,
+  onTextSelect,
 }: TranscriptProps) {
   const utterances = getUtterances(transcript.words, transcript.paragraphs);
   const currentTimeMs = currentTime * 1000;
+
+  const handleMouseUp = (para: UtteranceParagraph, speaker: string | null) => {
+    const selection = window.getSelection()?.toString().trim() || "";
+    if (selection.length > 0 && onTextSelect) {
+      // User highlighted text - trigger annotation flow
+      onTextSelect({ text: selection, paragraph: para, speaker });
+      // Clear the selection after capturing it
+      window.getSelection()?.removeAllRanges();
+    } else {
+      // Plain click - seek audio
+      onSeek(para.start);
+    }
+  };
 
   const skippedIntro = transcript.content_start_ms > 0;
   const skippedOutro =
@@ -63,10 +84,10 @@ export default function Transcript({
                 : currentTimeMs <= utterance.end);
 
             return (
-              <button
+              <div
                 key={i}
-                onClick={() => onSeek(para.start)}
-                className={`block w-full text-left transition-colors rounded -mx-3 px-3 py-1 ${
+                onMouseUp={() => handleMouseUp(para, utterance.speaker)}
+                className={`cursor-pointer select-text transition-colors rounded -mx-3 px-3 py-1 ${
                   isActive
                     ? "bg-amber-50"
                     : "hover:bg-gray-50"
@@ -75,7 +96,7 @@ export default function Transcript({
                 <p className="text-base text-gray-700 leading-7 font-serif">
                   {para.text}
                 </p>
-              </button>
+              </div>
             );
           })}
         </div>
