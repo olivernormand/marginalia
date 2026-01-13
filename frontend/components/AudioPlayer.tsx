@@ -167,7 +167,7 @@ export default function AudioPlayer({
 
   return (
     <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 shadow-lg z-50">
-      <audio ref={audioRef} src={audioUrl} preload="metadata" />
+      <audio ref={audioRef} src={audioUrl} preload="auto" />
 
       {/* Progress bar */}
       <div className="w-full h-1 bg-gray-100 relative">
