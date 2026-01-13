@@ -5,14 +5,17 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from backend.cache import (
     get_cached_feed,
+    get_cached_lookup,
     get_cached_search,
     get_cache_stats,
     set_cached_feed,
+    set_cached_lookup,
     set_cached_search,
 )
 from backend.models.schemas import (
     PodcastEpisodeResponse,
     PodcastFeedResponse,
+    PodcastLookupResponse,
     PodcastSearchResult,
 )
 from backend.rss import parse_rss_feed
@@ -32,6 +35,7 @@ app.add_middleware(
 )
 
 APPLE_PODCASTS_SEARCH_URL = "https://itunes.apple.com/search"
+APPLE_PODCASTS_LOOKUP_URL = "https://itunes.apple.com/lookup"
 
 
 @app.get("/health")
@@ -81,6 +85,50 @@ async def search(q: str = Query(..., min_length=1)) -> list[PodcastSearchResult]
     set_cached_search(q, raw_results)
 
     return results
+
+
+@app.get("/lookup")
+async def lookup(id: int = Query(..., gt=0)) -> PodcastLookupResponse:
+    """Lookup podcast info by iTunes collection ID (cached for 30 min)."""
+    # Check cache first
+    cached = get_cached_lookup(id)
+    if cached is not None:
+        return PodcastLookupResponse(**cached)
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            APPLE_PODCASTS_LOOKUP_URL,
+            params={"id": id},
+        )
+
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to fetch from Apple Podcasts API",
+            )
+
+        data = response.json()
+
+    results = data.get("results", [])
+    if not results:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Podcast with ID {id} not found",
+        )
+
+    item = results[0]
+    lookup_response = PodcastLookupResponse(
+        collection_id=item.get("collectionId"),
+        collection_name=item.get("collectionName", ""),
+        artist_name=item.get("artistName", ""),
+        feed_url=item.get("feedUrl", ""),
+        artwork_url=item.get("artworkUrl600") or item.get("artworkUrl100"),
+    )
+
+    # Cache the response
+    set_cached_lookup(id, lookup_response.model_dump())
+
+    return lookup_response
 
 
 @app.get("/feed")

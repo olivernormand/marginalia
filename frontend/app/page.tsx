@@ -39,12 +39,7 @@ export default function Home() {
   };
 
   const handlePodcastClick = (podcast: PodcastSearchResult) => {
-    const params = new URLSearchParams({
-      feedUrl: podcast.feed_url,
-      name: podcast.collection_name,
-      artwork: podcast.artwork_url_600 || podcast.artwork_url_100 || "",
-    });
-    router.push(`/podcast?${params.toString()}`);
+    router.push(`/podcast?id=${podcast.collection_id}`);
   };
 
   return (

@@ -4,7 +4,7 @@ import { Suspense, useEffect, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { PodcastFeed, PodcastEpisode } from "@/lib/types";
+import { PodcastFeed, PodcastEpisode, PodcastLookup } from "@/lib/types";
 import EpisodeCard from "@/components/EpisodeCard";
 import AudioPlayer from "@/components/AudioPlayer";
 
@@ -14,10 +14,9 @@ const EPISODES_PER_BATCH = 20;
 function PodcastContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const feedUrl = searchParams.get("feedUrl");
-  const podcastName = searchParams.get("name");
-  const artworkUrl = searchParams.get("artwork");
+  const podcastId = searchParams.get("id");
 
+  const [lookup, setLookup] = useState<PodcastLookup | null>(null);
   const [feed, setFeed] = useState<PodcastFeed | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,23 +26,32 @@ function PodcastContent() {
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!feedUrl) {
-      setError("No feed URL provided");
+    if (!podcastId) {
+      setError("No podcast ID provided");
       setIsLoading(false);
       return;
     }
 
-    const fetchFeed = async () => {
+    const fetchPodcast = async () => {
       try {
-        const response = await fetch(
-          `${API_BASE}/feed?url=${encodeURIComponent(feedUrl)}`
+        // First fetch lookup info (cached)
+        const lookupResponse = await fetch(`${API_BASE}/lookup?id=${podcastId}`);
+        if (!lookupResponse.ok) {
+          throw new Error("Failed to load podcast info");
+        }
+        const lookupData: PodcastLookup = await lookupResponse.json();
+        setLookup(lookupData);
+
+        // Then fetch the feed using the feed URL (also cached)
+        const feedResponse = await fetch(
+          `${API_BASE}/feed?url=${encodeURIComponent(lookupData.feed_url)}`
         );
-        if (!response.ok) {
+        if (!feedResponse.ok) {
           throw new Error("Failed to load podcast feed");
         }
-        const data = await response.json();
-        setFeed(data);
-        setVisibleCount(EPISODES_PER_BATCH); // Reset for new feed
+        const feedData = await feedResponse.json();
+        setFeed(feedData);
+        setVisibleCount(EPISODES_PER_BATCH);
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred");
       } finally {
@@ -51,8 +59,8 @@ function PodcastContent() {
       }
     };
 
-    fetchFeed();
-  }, [feedUrl]);
+    fetchPodcast();
+  }, [podcastId]);
 
   // Intersection Observer for infinite scroll
   useEffect(() => {
@@ -91,14 +99,8 @@ function PodcastContent() {
   };
 
   const handleEpisodeClick = (episode: PodcastEpisode) => {
-    // Navigate to episode page with episode data
-    const params = new URLSearchParams({
-      episode: JSON.stringify(episode),
-      podcastTitle: feed?.title || podcastName || "",
-      podcastArtwork: feed?.artwork_url || artworkUrl || "",
-      feedUrl: feedUrl || "",
-    });
-    router.push(`/episode?${params.toString()}`);
+    // Navigate to episode page with just the podcast ID and episode guid
+    router.push(`/episode?id=${podcastId}&guid=${encodeURIComponent(episode.guid || "")}`);
   };
 
   const handlePlayerClose = () => {
@@ -126,19 +128,19 @@ function PodcastContent() {
         <div className="text-center py-12 text-red-500">{error}</div>
       )}
 
-      {!isLoading && feed && (
+      {!isLoading && feed && lookup && (
         <>
           <div className="flex gap-6 mb-8">
-            {(feed.artwork_url || artworkUrl) && (
+            {(feed.artwork_url || lookup.artwork_url) && (
               <img
-                src={feed.artwork_url || artworkUrl || undefined}
+                src={feed.artwork_url || lookup.artwork_url || undefined}
                 alt={feed.title}
                 className="w-32 h-32 rounded-lg object-cover flex-shrink-0 shadow-md"
               />
             )}
             <div className="flex-1">
               <h1 className="text-4xl font-serif mb-2 text-gray-900">
-                {feed.title || podcastName}
+                {feed.title || lookup.collection_name}
               </h1>
               {feed.author && (
                 <p className="text-gray-500 mb-3">{feed.author}</p>
@@ -165,7 +167,7 @@ function PodcastContent() {
                   isCurrentEpisode={currentEpisode?.guid === episode.guid}
                   onPlay={handleEpisodePlay}
                   onEpisodeClick={handleEpisodeClick}
-                  podcastArtwork={feed.artwork_url || artworkUrl}
+                  podcastArtwork={feed.artwork_url || lookup.artwork_url}
                 />
               ))}
               {/* Sentinel for infinite scroll */}

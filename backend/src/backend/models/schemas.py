@@ -48,3 +48,13 @@ class PodcastSearchResult(BaseModel):
     content_advisory_rating: str | None = Field(
         alias="contentAdvisoryRating", default=None
     )
+
+
+class PodcastLookupResponse(BaseModel):
+    """Pydantic model for iTunes lookup API response."""
+
+    collection_id: int
+    collection_name: str
+    artist_name: str
+    feed_url: str
+    artwork_url: str | None = None

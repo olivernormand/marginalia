@@ -10,10 +10,12 @@ CACHE_MAX_SIZE = 500
 # Separate caches for different data types
 _search_cache: TTLCache[str, list] = TTLCache(maxsize=CACHE_MAX_SIZE, ttl=CACHE_TTL)
 _feed_cache: TTLCache[str, dict] = TTLCache(maxsize=CACHE_MAX_SIZE, ttl=CACHE_TTL)
+_lookup_cache: TTLCache[int, dict] = TTLCache(maxsize=CACHE_MAX_SIZE, ttl=CACHE_TTL)
 
 # Locks for thread safety
 _search_lock = Lock()
 _feed_lock = Lock()
+_lookup_lock = Lock()
 
 
 def get_cached_search(query: str) -> list | None:
@@ -40,6 +42,18 @@ def set_cached_feed(url: str, feed_data: dict) -> None:
         _feed_cache[url] = feed_data
 
 
+def get_cached_lookup(collection_id: int) -> dict | None:
+    """Get cached lookup data for a collection ID."""
+    with _lookup_lock:
+        return _lookup_cache.get(collection_id)
+
+
+def set_cached_lookup(collection_id: int, lookup_data: dict) -> None:
+    """Cache lookup data for a collection ID."""
+    with _lookup_lock:
+        _lookup_cache[collection_id] = lookup_data
+
+
 def get_cache_stats() -> dict:
     """Get cache statistics for debugging."""
     return {
@@ -52,5 +66,10 @@ def get_cache_stats() -> dict:
             "size": len(_feed_cache),
             "max_size": _feed_cache.maxsize,
             "ttl": _feed_cache.ttl,
+        },
+        "lookup_cache": {
+            "size": len(_lookup_cache),
+            "max_size": _lookup_cache.maxsize,
+            "ttl": _lookup_cache.ttl,
         },
     }

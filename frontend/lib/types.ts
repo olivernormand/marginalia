@@ -34,3 +34,11 @@ export interface PodcastFeed {
   artwork_url: string | null;
   episodes: PodcastEpisode[];
 }
+
+export interface PodcastLookup {
+  collection_id: number;
+  collection_name: string;
+  artist_name: string;
+  feed_url: string;
+  artwork_url: string | null;
+}
