@@ -12,9 +12,10 @@ import {
   TranscriptionJob,
 } from "@/lib/types";
 import { API_BASE } from "@/lib/config";
+import { BookmarkPlus } from "lucide-react";
 import AudioPlayer from "@/components/AudioPlayer";
-import TranscriptView, { SelectedText } from "@/components/Transcript";
-import AnnotationSidebar, { SavedAnnotation } from "@/components/AnnotationSidebar";
+import TranscriptView, { SavedAnnotation } from "@/components/Transcript";
+import AnnotationSidebar from "@/components/AnnotationSidebar";
 
 const POLL_INTERVAL = 3000; // 3 seconds
 
@@ -42,8 +43,8 @@ function EpisodeContent() {
   const [seekToTime, setSeekToTime] = useState<number | null>(null);
 
   // Annotation state
-  const [selectedText, setSelectedText] = useState<SelectedText | null>(null);
   const [annotations, setAnnotations] = useState<SavedAnnotation[]>([]);
+  const [showAllNotes, setShowAllNotes] = useState(false);
 
   // Fetch episode data
   useEffect(() => {
@@ -202,27 +203,24 @@ function EpisodeContent() {
     setTimeout(() => setSeekToTime(null), 100);
   }, []);
 
-  const handleTextSelect = useCallback((selection: SelectedText) => {
-    setSelectedText(selection);
-  }, []);
+  const handleSaveAnnotation = useCallback(
+    (text: string, note: string, speaker: string | null, startMs: number) => {
+      const newAnnotation: SavedAnnotation = {
+        id: crypto.randomUUID(),
+        text,
+        note,
+        speaker,
+        startMs,
+      };
+      setAnnotations((prev) => [newAnnotation, ...prev]);
+    },
+    []
+  );
 
-  const handleSaveAnnotation = useCallback((note: string) => {
-    if (!selectedText) return;
-
-    const newAnnotation: SavedAnnotation = {
-      id: crypto.randomUUID(),
-      text: selectedText.text,
-      note,
-      speaker: selectedText.speaker,
-      startMs: selectedText.paragraph.start,
-    };
-
-    setAnnotations((prev) => [newAnnotation, ...prev]);
-    setSelectedText(null);
-  }, [selectedText]);
-
-  const handleCancelAnnotation = useCallback(() => {
-    setSelectedText(null);
+  const handleEditAnnotation = useCallback((id: string, note: string) => {
+    setAnnotations((prev) =>
+      prev.map((a) => (a.id === id ? { ...a, note } : a))
+    );
   }, []);
 
   const handleDeleteAnnotation = useCallback((id: string) => {
@@ -250,8 +248,6 @@ function EpisodeContent() {
 
   // Build back link with podcast ID
   const backUrl = podcastId ? `/podcast?id=${podcastId}` : "/";
-
-  const showSidebar = selectedText || annotations.length > 0;
 
   return (
     <>
@@ -319,19 +315,37 @@ function EpisodeContent() {
 
         {/* Transcript section */}
         <div className="border-t border-gray-100 pt-8">
-          <h2 className="text-xl font-serif mb-6 text-gray-900">Transcript</h2>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-serif text-gray-900">Transcript</h2>
+            {annotations.length > 0 && (
+              <button
+                onClick={() => setShowAllNotes(!showAllNotes)}
+                className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-lg transition-colors ${
+                  showAllNotes
+                    ? "bg-gray-900 text-white"
+                    : "text-gray-600 hover:bg-gray-100"
+                }`}
+              >
+                <BookmarkPlus size={16} />
+                <span>
+                  {annotations.length} note{annotations.length !== 1 ? "s" : ""}
+                </span>
+              </button>
+            )}
+          </div>
 
           {transcript ? (
-            <div className="max-w-2xl">
-              <TranscriptView
-                transcript={transcript}
-                currentTime={currentTime}
-                onSeek={handleSeek}
-                onTextSelect={handleTextSelect}
-              />
-            </div>
+            <TranscriptView
+              transcript={transcript}
+              currentTime={currentTime}
+              onSeek={handleSeek}
+              annotations={annotations}
+              onSaveAnnotation={handleSaveAnnotation}
+              onEditAnnotation={handleEditAnnotation}
+              onDeleteAnnotation={handleDeleteAnnotation}
+            />
           ) : (
-            <div className="max-w-2xl py-12 text-center">
+            <div className="py-12 text-center">
               {isTranscribing ? (
                 <>
                   <Loader2 className="w-6 h-6 animate-spin mx-auto mb-4 text-gray-400" />
@@ -369,14 +383,13 @@ function EpisodeContent() {
         </div>
       </div>
 
-      {/* Annotation sidebar */}
-      {showSidebar && (
+      {/* All notes sidebar */}
+      {showAllNotes && (
         <AnnotationSidebar
-          selectedText={selectedText}
           annotations={annotations}
-          onSave={handleSaveAnnotation}
-          onCancel={handleCancelAnnotation}
+          onClose={() => setShowAllNotes(false)}
           onSeek={handleSeek}
+          onEdit={handleEditAnnotation}
           onDelete={handleDeleteAnnotation}
         />
       )}
