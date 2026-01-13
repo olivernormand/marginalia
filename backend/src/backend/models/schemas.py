@@ -108,13 +108,21 @@ class TranscriptWord(BaseModel):
     speaker: str | None = None
 
 
+class TranscriptParagraph(BaseModel):
+    """A paragraph segment from AssemblyAI."""
+
+    start: int  # milliseconds
+    end: int  # milliseconds
+    text: str
+
+
 class TranscriptUtterance(BaseModel):
-    """A contiguous sequence of words from the same speaker."""
+    """A contiguous sequence of paragraphs from the same speaker."""
 
     speaker: str | None
     start: int
     end: int
-    text: str
+    paragraphs: list[str]  # Split by paragraph boundaries for better readability
 
 
 class TranscriptAnalysis(BaseModel):
@@ -134,6 +142,7 @@ class TranscriptResponse(BaseModel):
     audio_duration: int  # milliseconds
     confidence: float
     words: list[TranscriptWord]
+    paragraphs: list[TranscriptParagraph] | None = None
     content_start_ms: int = 0
     content_end_ms: int | None = None
     speaker_labels: dict[str, str] | None = None
@@ -143,9 +152,14 @@ class TranscriptResponse(BaseModel):
         return " ".join(w.text for w in self.words)
 
     def get_utterances(self) -> list[TranscriptUtterance]:
-        """Group consecutive words by speaker into utterances."""
+        """Group words by speaker, split by paragraph boundaries."""
         if not self.words:
             return []
+
+        # Build paragraph boundaries for quick lookup
+        para_boundaries: list[tuple[int, int, str]] = []
+        if self.paragraphs:
+            para_boundaries = [(p.start, p.end, p.text) for p in self.paragraphs]
 
         result = []
         current_words = [self.words[0]]
@@ -155,25 +169,45 @@ class TranscriptResponse(BaseModel):
             if word.speaker == current_speaker:
                 current_words.append(word)
             else:
-                result.append(
-                    TranscriptUtterance(
-                        speaker=current_speaker,
-                        start=current_words[0].start,
-                        end=current_words[-1].end,
-                        text=" ".join(w.text for w in current_words),
-                    )
-                )
+                # Speaker changed - emit utterance
+                result.append(self._build_utterance(current_words, para_boundaries))
                 current_words = [word]
                 current_speaker = word.speaker
 
         # Last utterance
-        result.append(
-            TranscriptUtterance(
-                speaker=current_speaker,
-                start=current_words[0].start,
-                end=current_words[-1].end,
-                text=" ".join(w.text for w in current_words),
-            )
-        )
+        result.append(self._build_utterance(current_words, para_boundaries))
 
         return result
+
+    def _build_utterance(
+        self,
+        words: list[TranscriptWord],
+        para_boundaries: list[tuple[int, int, str]],
+    ) -> TranscriptUtterance:
+        """Build an utterance from words, splitting by paragraph boundaries."""
+        start = words[0].start
+        end = words[-1].end
+        speaker = words[0].speaker
+
+        # Find paragraphs that overlap with this word range
+        overlapping_paras = [
+            text
+            for p_start, p_end, text in para_boundaries
+            if p_start < end and p_end > start  # Overlaps
+        ]
+
+        if overlapping_paras:
+            return TranscriptUtterance(
+                speaker=speaker,
+                start=start,
+                end=end,
+                paragraphs=overlapping_paras,
+            )
+        else:
+            # Fallback: join words as single paragraph
+            return TranscriptUtterance(
+                speaker=speaker,
+                start=start,
+                end=end,
+                paragraphs=[" ".join(w.text for w in words)],
+            )

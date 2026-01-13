@@ -23,25 +23,12 @@ function formatDuration(ms: number): string {
   return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
 }
 
-function getSpeakerColor(speaker: string | null): string {
-  if (!speaker) return "bg-gray-100";
-  const colors = [
-    "bg-blue-50 border-l-blue-400",
-    "bg-green-50 border-l-green-400",
-    "bg-purple-50 border-l-purple-400",
-    "bg-orange-50 border-l-orange-400",
-    "bg-pink-50 border-l-pink-400",
-  ];
-  const index = speaker.charCodeAt(0) % colors.length;
-  return colors[index];
-}
-
 export default function Transcript({
   transcript,
   currentTime,
   onSeek,
 }: TranscriptProps) {
-  const utterances = getUtterances(transcript.words);
+  const utterances = getUtterances(transcript.words, transcript.paragraphs);
   const currentTimeMs = currentTime * 1000;
 
   const skippedIntro = transcript.content_start_ms > 0;
@@ -50,50 +37,58 @@ export default function Transcript({
     transcript.content_end_ms < transcript.audio_duration;
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-6">
       {/* Skipped intro indicator */}
       {skippedIntro && (
-        <div className="text-xs text-gray-400 italic px-3 py-2 bg-gray-50 rounded-lg">
-          Skipped {formatDuration(transcript.content_start_ms)} of intro
-        </div>
+        <p className="text-sm text-gray-400 italic">
+          {formatDuration(transcript.content_start_ms)} of intro skipped
+        </p>
       )}
 
-      {utterances.map((utterance, index) => {
-        const isActive =
-          currentTimeMs >= utterance.start && currentTimeMs <= utterance.end;
+      {utterances.map((utterance, index) => (
+        <div key={index} className="space-y-4">
+          <div className="flex items-baseline gap-3">
+            <span className="text-sm font-medium text-gray-900">
+              {utterance.speaker || "Speaker"}
+            </span>
+            <span className="text-xs text-gray-400">
+              {formatTime(utterance.start)}
+            </span>
+          </div>
+          {utterance.paragraphs.map((para, i) => {
+            const isActive =
+              currentTimeMs >= para.start &&
+              (i + 1 < utterance.paragraphs.length
+                ? currentTimeMs < utterance.paragraphs[i + 1].start
+                : currentTimeMs <= utterance.end);
 
-        return (
-          <button
-            key={index}
-            onClick={() => onSeek(utterance.start)}
-            className={`w-full text-left p-3 rounded-lg border-l-4 transition-all ${getSpeakerColor(utterance.speaker)} ${
-              isActive ? "ring-2 ring-gray-400" : "hover:brightness-95"
-            }`}
-          >
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-xs font-medium text-gray-500">
-                {utterance.speaker || "Speaker"}
-              </span>
-              <span className="text-xs text-gray-400">
-                {formatTime(utterance.start)}
-              </span>
-            </div>
-            <p className="text-sm text-gray-800 leading-relaxed">
-              {utterance.text}
-            </p>
-          </button>
-        );
-      })}
+            return (
+              <button
+                key={i}
+                onClick={() => onSeek(para.start)}
+                className={`block w-full text-left transition-colors rounded -mx-3 px-3 py-1 ${
+                  isActive
+                    ? "bg-amber-50"
+                    : "hover:bg-gray-50"
+                }`}
+              >
+                <p className="text-base text-gray-700 leading-7 font-serif">
+                  {para.text}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      ))}
 
       {/* Skipped outro indicator */}
       {skippedOutro && (
-        <div className="text-xs text-gray-400 italic px-3 py-2 bg-gray-50 rounded-lg">
-          Skipped{" "}
+        <p className="text-sm text-gray-400 italic">
           {formatDuration(
             transcript.audio_duration - transcript.content_end_ms!
           )}{" "}
-          of outro
-        </div>
+          of outro skipped
+        </p>
       )}
     </div>
   );

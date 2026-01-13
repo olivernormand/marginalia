@@ -75,11 +75,22 @@ export interface TranscriptWord {
   speaker: string | null;
 }
 
+export interface TranscriptParagraph {
+  start: number; // milliseconds
+  end: number; // milliseconds
+  text: string;
+}
+
+export interface UtteranceParagraph {
+  text: string;
+  start: number; // milliseconds - for seeking
+}
+
 export interface TranscriptUtterance {
   speaker: string | null;
   start: number;
   end: number;
-  text: string;
+  paragraphs: UtteranceParagraph[];
 }
 
 export interface Transcript {
@@ -89,16 +100,22 @@ export interface Transcript {
   audio_duration: number; // milliseconds
   confidence: number;
   words: TranscriptWord[];
+  paragraphs: TranscriptParagraph[] | null;
   content_start_ms: number;
   content_end_ms: number | null;
   speaker_labels: Record<string, string> | null;
 }
 
-// Helper to group words into utterances
-export function getUtterances(words: TranscriptWord[]): TranscriptUtterance[] {
+// Helper to group words into utterances, split by paragraph boundaries
+export function getUtterances(
+  words: TranscriptWord[],
+  paragraphs?: TranscriptParagraph[] | null
+): TranscriptUtterance[] {
   if (words.length === 0) return [];
 
-  const result: TranscriptUtterance[] = [];
+  // Group words by speaker first
+  const speakerGroups: { speaker: string | null; words: TranscriptWord[] }[] =
+    [];
   let currentWords = [words[0]];
   let currentSpeaker = words[0].speaker;
 
@@ -107,24 +124,42 @@ export function getUtterances(words: TranscriptWord[]): TranscriptUtterance[] {
     if (word.speaker === currentSpeaker) {
       currentWords.push(word);
     } else {
-      result.push({
-        speaker: currentSpeaker,
-        start: currentWords[0].start,
-        end: currentWords[currentWords.length - 1].end,
-        text: currentWords.map((w) => w.text).join(" "),
-      });
+      speakerGroups.push({ speaker: currentSpeaker, words: currentWords });
       currentWords = [word];
       currentSpeaker = word.speaker;
     }
   }
+  speakerGroups.push({ speaker: currentSpeaker, words: currentWords });
 
-  // Last utterance
-  result.push({
-    speaker: currentSpeaker,
-    start: currentWords[0].start,
-    end: currentWords[currentWords.length - 1].end,
-    text: currentWords.map((w) => w.text).join(" "),
-  });
+  // Build utterances from speaker groups, using paragraph boundaries
+  const result: TranscriptUtterance[] = [];
+
+  for (const group of speakerGroups) {
+    const start = group.words[0].start;
+    const end = group.words[group.words.length - 1].end;
+
+    // Find paragraphs that overlap with this speaker group
+    const overlappingParas = paragraphs
+      ? paragraphs.filter((p) => p.start < end && p.end > start)
+      : [];
+
+    if (overlappingParas.length > 0) {
+      result.push({
+        speaker: group.speaker,
+        start,
+        end,
+        paragraphs: overlappingParas.map((p) => ({ text: p.text, start: p.start })),
+      });
+    } else {
+      // Fallback: join words as single paragraph
+      result.push({
+        speaker: group.speaker,
+        start,
+        end,
+        paragraphs: [{ text: group.words.map((w) => w.text).join(" "), start }],
+      });
+    }
+  }
 
   return result;
 }

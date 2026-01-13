@@ -22,6 +22,7 @@ from backend.models.schemas import (
     TranscribeRequest,
     TranscriptAnalysis,
     TranscriptionJobResponse,
+    TranscriptParagraph,
     TranscriptResponse,
     TranscriptWord,
     TrendingPodcast,
@@ -498,6 +499,21 @@ async def poll_transcription(job_id: str) -> TranscriptionJobResponse:
 
     # Update database based on status
     if status == "completed":
+        # Fetch paragraphs from AssemblyAI
+        paragraphs = None
+        async with httpx.AsyncClient() as client:
+            para_response = await client.get(
+                f"{ASSEMBLYAI_BASE_URL}/transcript/{job_id}/paragraphs",
+                headers=headers,
+            )
+            if para_response.status_code == 200:
+                para_data = para_response.json()
+                # Store just start, end, text for each paragraph
+                paragraphs = [
+                    {"start": p["start"], "end": p["end"], "text": p["text"]}
+                    for p in para_data.get("paragraphs", [])
+                ]
+
         # Analyze transcript to find content bounds and speaker names
         analysis = await analyze_transcript(
             words=result["words"],
@@ -513,6 +529,7 @@ async def poll_transcription(job_id: str) -> TranscriptionJobResponse:
             audio_duration=result["audio_duration"],
             confidence=result["confidence"],
             words=result["words"],
+            paragraphs=paragraphs,
             content_start_ms=analysis.content_start_ms,
             content_end_ms=analysis.content_end_ms,
             speaker_labels=analysis.speaker_labels,
@@ -550,6 +567,11 @@ async def get_transcript(episode_guid: str) -> TranscriptResponse:
         )
 
     words_data = json.loads(existing["words_json"])
+    paragraphs_data = (
+        json.loads(existing["paragraphs_json"])
+        if existing.get("paragraphs_json")
+        else None
+    )
     content_start_ms = existing.get("content_start_ms") or 0
     content_end_ms = existing.get("content_end_ms")
     speaker_labels = (
@@ -565,6 +587,16 @@ async def get_transcript(episode_guid: str) -> TranscriptResponse:
         if w["start"] >= content_start_ms
         and (content_end_ms is None or w["end"] <= content_end_ms)
     ]
+
+    # Filter paragraphs to content bounds
+    filtered_paragraphs = None
+    if paragraphs_data:
+        filtered_paragraphs = [
+            TranscriptParagraph(start=p["start"], end=p["end"], text=p["text"])
+            for p in paragraphs_data
+            if p["start"] >= content_start_ms
+            and (content_end_ms is None or p["end"] <= content_end_ms)
+        ]
 
     # Apply speaker labels if available
     def get_speaker_name(speaker_id: str | None) -> str | None:
@@ -583,6 +615,7 @@ async def get_transcript(episode_guid: str) -> TranscriptResponse:
         content_start_ms=content_start_ms,
         content_end_ms=content_end_ms,
         speaker_labels=speaker_labels,
+        paragraphs=filtered_paragraphs,
         words=[
             TranscriptWord(
                 text=w["text"],

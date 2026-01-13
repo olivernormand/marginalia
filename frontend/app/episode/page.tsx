@@ -268,70 +268,70 @@ function EpisodeContent() {
           </div>
         </div>
 
-        {/* Transcript section */}
-        <div className="border-t border-gray-100 pt-6 mb-8">
-          <h2 className="text-lg font-serif mb-4 text-gray-900">Transcript</h2>
-
-          {transcript ? (
-            <TranscriptView
-              transcript={transcript}
-              currentTime={currentTime}
-              onSeek={handleSeek}
-            />
-          ) : (
-            <div className="bg-gray-50 rounded-lg p-8 text-center">
-              {isTranscribing ? (
-                <>
-                  <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4 text-gray-400" />
-                  <p className="text-gray-500 mb-2">
-                    Transcribing episode...
-                  </p>
-                  <p className="text-xs text-gray-400">
-                    Status: {transcriptionJob?.status || "starting"}
-                  </p>
-                </>
-              ) : transcriptError ? (
-                <>
-                  <p className="text-red-500 mb-4">{transcriptError}</p>
-                  <button
-                    onClick={handleRequestTranscription}
-                    className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors"
-                  >
-                    Retry Transcription
-                  </button>
-                </>
-              ) : (
-                <>
-                  <p className="text-gray-500 mb-4">
-                    Transcript not yet available for this episode.
-                  </p>
-                  <button
-                    onClick={handleRequestTranscription}
-                    disabled={!episode.audio_url}
-                    className="px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Request Transcription
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-
         {/* Episode description */}
         {episode.description && (
-          <div className="border-t border-gray-100 pt-6">
-            <h2 className="text-lg font-serif mb-4 text-gray-900">
+          <div className="border-t border-gray-100 pt-8 mb-12">
+            <h2 className="text-xl font-serif mb-4 text-gray-900">
               About this episode
             </h2>
             <div
-              className="prose prose-gray max-w-none text-gray-600"
+              className="prose prose-gray max-w-none text-gray-600 leading-relaxed"
               dangerouslySetInnerHTML={{
                 __html: episode.description,
               }}
             />
           </div>
         )}
+
+        {/* Transcript section */}
+        <div className="border-t border-gray-100 pt-8">
+          <h2 className="text-xl font-serif mb-6 text-gray-900">Transcript</h2>
+
+          {transcript ? (
+            <div className="max-w-2xl mx-auto">
+              <TranscriptView
+                transcript={transcript}
+                currentTime={currentTime}
+                onSeek={handleSeek}
+              />
+            </div>
+          ) : (
+            <div className="max-w-2xl mx-auto py-12 text-center">
+              {isTranscribing ? (
+                <>
+                  <Loader2 className="w-6 h-6 animate-spin mx-auto mb-4 text-gray-400" />
+                  <p className="text-gray-500 mb-1">Transcribing episode...</p>
+                  <p className="text-sm text-gray-400">
+                    {transcriptionJob?.status || "starting"}
+                  </p>
+                </>
+              ) : transcriptError ? (
+                <>
+                  <p className="text-red-600 mb-4">{transcriptError}</p>
+                  <button
+                    onClick={handleRequestTranscription}
+                    className="text-sm text-gray-900 underline hover:no-underline"
+                  >
+                    Try again
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-gray-500 mb-4">
+                    No transcript available yet.
+                  </p>
+                  <button
+                    onClick={handleRequestTranscription}
+                    disabled={!episode.audio_url}
+                    className="text-sm font-medium text-gray-900 underline hover:no-underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
+                  >
+                    Request transcription
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Audio player */}
