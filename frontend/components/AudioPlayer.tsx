@@ -52,18 +52,23 @@ export default function AudioPlayer({
 
     const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
     const handleDurationChange = () => setDuration(audio.duration);
-    const handleEnded = () => setIsPlaying(false);
+    // Sync isPlaying state with actual audio element state
+    // This handles media keys, browser controls, and other external triggers
+    const handlePlay = () => setIsPlaying(true);
+    const handlePause = () => setIsPlaying(false);
 
     audio.addEventListener("timeupdate", handleTimeUpdate);
     audio.addEventListener("durationchange", handleDurationChange);
     audio.addEventListener("loadedmetadata", handleDurationChange);
-    audio.addEventListener("ended", handleEnded);
+    audio.addEventListener("play", handlePlay);
+    audio.addEventListener("pause", handlePause);
 
     return () => {
       audio.removeEventListener("timeupdate", handleTimeUpdate);
       audio.removeEventListener("durationchange", handleDurationChange);
       audio.removeEventListener("loadedmetadata", handleDurationChange);
-      audio.removeEventListener("ended", handleEnded);
+      audio.removeEventListener("play", handlePlay);
+      audio.removeEventListener("pause", handlePause);
     };
   }, []);
 
@@ -89,14 +94,13 @@ export default function AudioPlayer({
     const audio = audioRef.current;
     if (!audio) return;
 
-    // Reset state for new episode
+    // Reset time for new episode
     setCurrentTime(0);
-    setIsPlaying(false);
 
     const startPlayback = async () => {
       try {
+        // State will be updated by play event listener
         await audio.play();
-        setIsPlaying(true);
       } catch (err) {
         // Auto-play might be blocked by browser policy
         console.log("Auto-play blocked, user must click play");
@@ -119,12 +123,11 @@ export default function AudioPlayer({
     const audio = audioRef.current;
     if (!audio) return;
 
-    if (isPlaying) {
-      audio.pause();
-      setIsPlaying(false);
-    } else {
+    // State will be updated by play/pause event listeners
+    if (audio.paused) {
       await audio.play();
-      setIsPlaying(true);
+    } else {
+      audio.pause();
     }
   };
 
