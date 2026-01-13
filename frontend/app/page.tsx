@@ -3,11 +3,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { PodcastSearchResult } from "@/lib/types";
+import { API_BASE } from "@/lib/config";
 import Header from "@/components/Header";
 import SearchBar from "@/components/SearchBar";
 import PodcastCard from "@/components/PodcastCard";
-
-const API_BASE = "http://localhost:8000";
 
 export default function Home() {
   const router = useRouter();
@@ -39,7 +38,7 @@ export default function Home() {
   };
 
   const handlePodcastClick = (podcast: PodcastSearchResult) => {
-    router.push(`/podcast?id=${podcast.collection_id}`);
+    router.push(`/podcast?id=${podcast.id}`);
   };
 
   return (
@@ -66,7 +65,7 @@ export default function Home() {
           <div className="space-y-6">
             {results.map((podcast, index) => (
               <PodcastCard
-                key={`${podcast.collection_id}-${index}`}
+                key={`${podcast.id}-${index}`}
                 podcast={podcast}
                 onClick={() => handlePodcastClick(podcast)}
               />

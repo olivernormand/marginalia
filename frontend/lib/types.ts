@@ -1,20 +1,32 @@
 export interface PodcastSearchResult {
-  collection_id: number;
-  track_id: number;
-  artist_name: string;
-  collection_name: string;
-  feed_url: string;
-  artwork_url_30: string | null;
-  artwork_url_60: string | null;
-  artwork_url_100: string | null;
-  artwork_url_600: string | null;
-  release_date: string;
-  track_count: number;
-  country: string;
-  primary_genre_name: string;
-  genres: string[];
-  collection_view_url: string | null;
-  content_advisory_rating: string | null;
+  id: number;
+  title: string;
+  url: string; // RSS feed URL
+  artwork: string | null;
+  author: string | null;
+  description: string | null;
+  itunes_id: number | null;
+  podcast_guid: string | null;
+  episode_count: number | null;
+  language: string | null;
+  explicit: boolean;
+  categories: Record<string, string> | null;
+}
+
+export interface PodcastInfo {
+  id: number;
+  title: string;
+  url: string; // RSS feed URL
+  artwork: string | null;
+  author: string | null;
+  description: string | null;
+  itunes_id: number | null;
+  podcast_guid: string | null;
+  episode_count: number | null;
+  language: string | null;
+  explicit: boolean;
+  categories: Record<string, string> | null;
+  link: string | null; // Website URL
 }
 
 export interface PodcastEpisode {
@@ -33,12 +45,4 @@ export interface PodcastFeed {
   author: string | null;
   artwork_url: string | null;
   episodes: PodcastEpisode[];
-}
-
-export interface PodcastLookup {
-  collection_id: number;
-  collection_name: string;
-  artist_name: string;
-  feed_url: string;
-  artwork_url: string | null;
 }

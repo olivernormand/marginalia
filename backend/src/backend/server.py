@@ -1,21 +1,21 @@
+import hashlib
+import os
+import time
+from pathlib import Path
+
 import httpx
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.cache import (
-    get_cached_feed,
-    get_cached_lookup,
-    get_cached_search,
-    get_cache_stats,
-    set_cached_feed,
-    set_cached_lookup,
-    set_cached_search,
-)
+# Load .env file from backend directory
+load_dotenv(Path(__file__).parent.parent.parent / ".env")
+
 from backend.models.schemas import (
     PodcastEpisodeResponse,
     PodcastFeedResponse,
-    PodcastLookupResponse,
+    PodcastInfoResponse,
     PodcastSearchResult,
 )
 from backend.rss import parse_rss_feed
@@ -34,8 +34,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-APPLE_PODCASTS_SEARCH_URL = "https://itunes.apple.com/search"
-APPLE_PODCASTS_LOOKUP_URL = "https://itunes.apple.com/lookup"
+# Podcast Index API
+PODCAST_INDEX_API_KEY = os.getenv("PODCAST_INDEX_API_KEY", "")
+PODCAST_INDEX_API_SECRET = os.getenv("PODCAST_INDEX_API_SECRET", "")
+PODCAST_INDEX_BASE_URL = "https://api.podcastindex.org/api/1.0"
+
+
+def get_podcast_index_headers() -> dict[str, str]:
+    """Generate authentication headers for Podcast Index API."""
+    epoch_time = str(int(time.time()))
+    data_to_hash = PODCAST_INDEX_API_KEY + PODCAST_INDEX_API_SECRET + epoch_time
+    sha1_hash = hashlib.sha1(data_to_hash.encode("utf-8")).hexdigest()
+
+    return {
+        "X-Auth-Key": PODCAST_INDEX_API_KEY,
+        "X-Auth-Date": epoch_time,
+        "Authorization": sha1_hash,
+        "User-Agent": "Marginalia/1.0",
+    }
 
 
 @app.get("/health")
@@ -44,96 +60,94 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/cache-stats")
-async def cache_stats() -> dict:
-    """Get cache statistics for debugging."""
-    return get_cache_stats()
-
-
-@app.get("/search", response_model_by_alias=False)
+@app.get("/search")
 async def search(q: str = Query(..., min_length=1)) -> list[PodcastSearchResult]:
-    """Search for podcasts via Apple Podcasts API (cached for 30 min)."""
-    # Check cache first
-    cached = get_cached_search(q)
-    if cached is not None:
-        return [PodcastSearchResult(**item) for item in cached]
-
+    """Search for podcasts via Podcast Index API."""
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            APPLE_PODCASTS_SEARCH_URL,
-            params={"term": q, "media": "podcast"},
+            f"{PODCAST_INDEX_BASE_URL}/search/byterm",
+            params={"q": q},
+            headers=get_podcast_index_headers(),
         )
 
         if response.status_code != 200:
             raise HTTPException(
                 status_code=502,
-                detail="Failed to fetch from Apple Podcasts API",
+                detail="Failed to fetch from Podcast Index API",
             )
 
         data = response.json()
 
     results = []
-    raw_results = []
-    for item in data.get("results", []):
+    for item in data.get("feeds", []):
         try:
-            results.append(PodcastSearchResult(**item))
-            raw_results.append(item)
+            results.append(
+                PodcastSearchResult(
+                    id=item["id"],
+                    title=item.get("title", ""),
+                    url=item.get("url", ""),
+                    artwork=item.get("artwork"),
+                    author=item.get("author"),
+                    description=item.get("description"),
+                    itunes_id=item.get("itunesId"),
+                    podcast_guid=item.get("podcastGuid"),
+                    episode_count=item.get("episodeCount"),
+                    language=item.get("language"),
+                    explicit=item.get("explicit", False),
+                    categories=item.get("categories"),
+                )
+            )
         except Exception:
             continue
-
-    # Cache the raw results
-    set_cached_search(q, raw_results)
 
     return results
 
 
-@app.get("/lookup")
-async def lookup(id: int = Query(..., gt=0)) -> PodcastLookupResponse:
-    """Lookup podcast info by iTunes collection ID (cached for 30 min)."""
-    # Check cache first
-    cached = get_cached_lookup(id)
-    if cached is not None:
-        return PodcastLookupResponse(**cached)
-
+@app.get("/podcast/{podcast_id}")
+async def get_podcast(podcast_id: int) -> PodcastInfoResponse:
+    """Get podcast info by Podcast Index ID."""
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            APPLE_PODCASTS_LOOKUP_URL,
-            params={"id": id},
+            f"{PODCAST_INDEX_BASE_URL}/podcasts/byfeedid",
+            params={"id": podcast_id},
+            headers=get_podcast_index_headers(),
         )
 
         if response.status_code != 200:
             raise HTTPException(
                 status_code=502,
-                detail="Failed to fetch from Apple Podcasts API",
+                detail="Failed to fetch from Podcast Index API",
             )
 
         data = response.json()
 
-    results = data.get("results", [])
-    if not results:
+    feed = data.get("feed")
+    if not feed:
         raise HTTPException(
             status_code=404,
-            detail=f"Podcast with ID {id} not found",
+            detail=f"Podcast with ID {podcast_id} not found",
         )
 
-    item = results[0]
-    lookup_response = PodcastLookupResponse(
-        collection_id=item.get("collectionId"),
-        collection_name=item.get("collectionName", ""),
-        artist_name=item.get("artistName", ""),
-        feed_url=item.get("feedUrl", ""),
-        artwork_url=item.get("artworkUrl600") or item.get("artworkUrl100"),
+    return PodcastInfoResponse(
+        id=feed["id"],
+        title=feed.get("title", ""),
+        url=feed.get("url", ""),
+        artwork=feed.get("artwork"),
+        author=feed.get("author"),
+        description=feed.get("description"),
+        itunes_id=feed.get("itunesId"),
+        podcast_guid=feed.get("podcastGuid"),
+        episode_count=feed.get("episodeCount"),
+        language=feed.get("language"),
+        explicit=feed.get("explicit", False),
+        categories=feed.get("categories"),
+        link=feed.get("link"),
     )
-
-    # Cache the response
-    set_cached_lookup(id, lookup_response.model_dump())
-
-    return lookup_response
 
 
 @app.get("/feed")
 async def get_feed(url: str = Query(..., min_length=1)) -> PodcastFeedResponse:
-    """Fetch and parse a podcast RSS feed (cached for 30 min).
+    """Fetch and parse a podcast RSS feed.
 
     Args:
         url: The URL of the RSS feed to fetch.
@@ -141,11 +155,6 @@ async def get_feed(url: str = Query(..., min_length=1)) -> PodcastFeedResponse:
     Returns:
         Parsed podcast feed with episodes.
     """
-    # Check cache first
-    cached = get_cached_feed(url)
-    if cached is not None:
-        return PodcastFeedResponse(**cached)
-
     async with httpx.AsyncClient(follow_redirects=True, timeout=30.0) as client:
         try:
             response = await client.get(url)
@@ -171,7 +180,7 @@ async def get_feed(url: str = Query(..., min_length=1)) -> PodcastFeedResponse:
             detail=str(e),
         ) from e
 
-    feed_response = PodcastFeedResponse(
+    return PodcastFeedResponse(
         title=feed.title,
         description=feed.description,
         author=feed.author,
@@ -189,11 +198,6 @@ async def get_feed(url: str = Query(..., min_length=1)) -> PodcastFeedResponse:
             for ep in feed.episodes
         ],
     )
-
-    # Cache the response as dict
-    set_cached_feed(url, feed_response.model_dump(mode="json"))
-
-    return feed_response
 
 
 def main() -> None:

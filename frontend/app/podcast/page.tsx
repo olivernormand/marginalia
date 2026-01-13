@@ -4,11 +4,10 @@ import { Suspense, useEffect, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { PodcastFeed, PodcastEpisode, PodcastLookup } from "@/lib/types";
+import { PodcastFeed, PodcastEpisode, PodcastInfo } from "@/lib/types";
+import { API_BASE } from "@/lib/config";
 import EpisodeCard from "@/components/EpisodeCard";
 import AudioPlayer from "@/components/AudioPlayer";
-
-const API_BASE = "http://localhost:8000";
 const EPISODES_PER_BATCH = 20;
 
 function PodcastContent() {
@@ -16,7 +15,7 @@ function PodcastContent() {
   const router = useRouter();
   const podcastId = searchParams.get("id");
 
-  const [lookup, setLookup] = useState<PodcastLookup | null>(null);
+  const [podcastInfo, setPodcastInfo] = useState<PodcastInfo | null>(null);
   const [feed, setFeed] = useState<PodcastFeed | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,17 +33,17 @@ function PodcastContent() {
 
     const fetchPodcast = async () => {
       try {
-        // First fetch lookup info (cached)
-        const lookupResponse = await fetch(`${API_BASE}/lookup?id=${podcastId}`);
-        if (!lookupResponse.ok) {
+        // First fetch podcast info from Podcast Index
+        const infoResponse = await fetch(`${API_BASE}/podcast/${podcastId}`);
+        if (!infoResponse.ok) {
           throw new Error("Failed to load podcast info");
         }
-        const lookupData: PodcastLookup = await lookupResponse.json();
-        setLookup(lookupData);
+        const infoData: PodcastInfo = await infoResponse.json();
+        setPodcastInfo(infoData);
 
-        // Then fetch the feed using the feed URL (also cached)
+        // Then fetch the feed using the feed URL
         const feedResponse = await fetch(
-          `${API_BASE}/feed?url=${encodeURIComponent(lookupData.feed_url)}`
+          `${API_BASE}/feed?url=${encodeURIComponent(infoData.url)}`
         );
         if (!feedResponse.ok) {
           throw new Error("Failed to load podcast feed");
@@ -74,7 +73,7 @@ function PodcastContent() {
           );
         }
       },
-      { rootMargin: "200px" } // Load more before reaching the very bottom
+      { rootMargin: "200px" }
     );
 
     const sentinel = sentinelRef.current;
@@ -99,7 +98,6 @@ function PodcastContent() {
   };
 
   const handleEpisodeClick = (episode: PodcastEpisode) => {
-    // Navigate to episode page with just the podcast ID and episode guid
     router.push(`/episode?id=${podcastId}&guid=${encodeURIComponent(episode.guid || "")}`);
   };
 
@@ -128,19 +126,19 @@ function PodcastContent() {
         <div className="text-center py-12 text-red-500">{error}</div>
       )}
 
-      {!isLoading && feed && lookup && (
+      {!isLoading && feed && podcastInfo && (
         <>
           <div className="flex gap-6 mb-8">
-            {(feed.artwork_url || lookup.artwork_url) && (
+            {(feed.artwork_url || podcastInfo.artwork) && (
               <img
-                src={feed.artwork_url || lookup.artwork_url || undefined}
+                src={feed.artwork_url || podcastInfo.artwork || undefined}
                 alt={feed.title}
                 className="w-32 h-32 rounded-lg object-cover flex-shrink-0 shadow-md"
               />
             )}
             <div className="flex-1">
               <h1 className="text-4xl font-serif mb-2 text-gray-900">
-                {feed.title || lookup.collection_name}
+                {feed.title || podcastInfo.title}
               </h1>
               {feed.author && (
                 <p className="text-gray-500 mb-3">{feed.author}</p>
@@ -167,7 +165,7 @@ function PodcastContent() {
                   isCurrentEpisode={currentEpisode?.guid === episode.guid}
                   onPlay={handleEpisodePlay}
                   onEpisodeClick={handleEpisodeClick}
-                  podcastArtwork={feed.artwork_url || lookup.artwork_url}
+                  podcastArtwork={feed.artwork_url || podcastInfo.artwork}
                 />
               ))}
               {/* Sentinel for infinite scroll */}

@@ -4,23 +4,21 @@ import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { PodcastEpisode, PodcastFeed, PodcastLookup } from "@/lib/types";
+import { PodcastEpisode, PodcastFeed, PodcastInfo } from "@/lib/types";
+import { API_BASE } from "@/lib/config";
 import AudioPlayer from "@/components/AudioPlayer";
-
-const API_BASE = "http://localhost:8000";
 
 function EpisodeContent() {
   const searchParams = useSearchParams();
 
-  // Get episode by podcast ID + guid (all cached on backend)
+  // Get episode by podcast ID + guid
   const podcastId = searchParams.get("id");
   const guid = searchParams.get("guid");
 
-  const [lookup, setLookup] = useState<PodcastLookup | null>(null);
+  const [podcastInfo, setPodcastInfo] = useState<PodcastInfo | null>(null);
   const [episode, setEpisode] = useState<PodcastEpisode | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
 
   useEffect(() => {
     if (!podcastId || !guid) {
@@ -31,17 +29,17 @@ function EpisodeContent() {
 
     const fetchEpisode = async () => {
       try {
-        // First fetch lookup info (cached)
-        const lookupResponse = await fetch(`${API_BASE}/lookup?id=${podcastId}`);
-        if (!lookupResponse.ok) {
+        // First fetch podcast info
+        const infoResponse = await fetch(`${API_BASE}/podcast/${podcastId}`);
+        if (!infoResponse.ok) {
           throw new Error("Failed to load podcast info");
         }
-        const lookupData: PodcastLookup = await lookupResponse.json();
-        setLookup(lookupData);
+        const infoData: PodcastInfo = await infoResponse.json();
+        setPodcastInfo(infoData);
 
-        // Then fetch the feed (also cached)
+        // Then fetch the feed
         const feedResponse = await fetch(
-          `${API_BASE}/feed?url=${encodeURIComponent(lookupData.feed_url)}`
+          `${API_BASE}/feed?url=${encodeURIComponent(infoData.url)}`
         );
         if (!feedResponse.ok) {
           throw new Error("Failed to load podcast feed");
@@ -81,8 +79,8 @@ function EpisodeContent() {
     );
   }
 
-  const artworkUrl = episode.artwork_url || lookup?.artwork_url;
-  const podcastTitle = lookup?.collection_name;
+  const artworkUrl = episode.artwork_url || podcastInfo?.artwork;
+  const podcastTitle = podcastInfo?.title;
 
   // Build back link with podcast ID
   const backUrl = podcastId ? `/podcast?id=${podcastId}` : "/";
@@ -177,7 +175,6 @@ function EpisodeContent() {
           audioUrl={episode.audio_url}
           episodeTitle={episode.title}
           podcastTitle={podcastTitle || undefined}
-          onPlayingChange={setIsPlaying}
         />
       )}
     </>
