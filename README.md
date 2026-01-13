@@ -17,12 +17,18 @@ Marginalia builds towards a seamless experience for listening to podcasts and ca
 
 ## Current Status
 
-**Phase 1 is complete.** The app supports searching, browsing, and playing podcasts.
+**Phases 1–3 are complete.** The app supports:
+- Searching, browsing, and playing podcasts
+- Transcription with speaker diarization and paragraph segmentation
+- LLM-powered content detection (skip intro/outro music, identify speakers)
+- Inline margin notes with click-to-seek and editing
 
 **Key implementation differences from spec:**
 - Using **Podcast Index API** instead of Apple Podcasts API (open, free, better metadata)
+- Using **AssemblyAI** instead of ElevenLabs for transcription (better paragraph detection)
+- Using **Claude Haiku** for transcript analysis (speaker identification, content bounds)
 - Using **uv** for Python dependency management instead of Docker
-- No LRU caching except for trending podcasts (5min TTL) - kept simple for now
+- Local SQLite for development instead of Supabase (migration planned)
 - URLs use query params (`/podcast?id=123`) rather than path params (`/podcast/[id]`)
 
 ---
@@ -31,12 +37,13 @@ Marginalia builds towards a seamless experience for listening to podcasts and ca
 
 | Layer | Technology | Rationale |
 |-------|------------|-----------|
-| Frontend | Next.js + Tailwind CSS + shadcn/ui | Modern React framework with excellent DX. shadcn/ui provides accessible, customizable components. |
+| Frontend | Next.js + Tailwind CSS | Modern React framework with excellent DX. Lucide icons for UI elements. |
 | Backend | FastAPI (Python) | Fast to develop, async support, automatic OpenAPI docs, Pydantic validation. |
-| Database | Supabase (PostgreSQL) | Managed Postgres with easy setup. Auth, storage, and realtime built-in for future use. |
-| Transcription | ElevenLabs Scribe v2 | ~£0.40/hr. Provides timestamps and speaker diarization out of the box. |
-| Auth | Supabase Auth (Google OAuth) | Simple integration. Google-only login for simplicity. Implemented after core features. |
-| Local Dev | Docker + docker-compose | Consistent dev environment, easy onboarding. |
+| Database | SQLite (local) → Supabase (prod) | SQLite for local dev, Supabase for production with auth and RLS. |
+| Transcription | AssemblyAI | Speaker diarization, paragraph detection, word-level timestamps. |
+| Transcript Analysis | Claude Haiku | Structured outputs for speaker identification and content bounds detection. |
+| Auth | Supabase Auth (Google OAuth) | Simple integration. Google-only login for simplicity. Planned for Phase 5. |
+| Hosting | Vercel + Fly.io | Vercel for Next.js frontend, Fly.io for FastAPI backend. Planned. |
 
 **Deployment (Future):**
 - Frontend: Vercel
@@ -52,10 +59,9 @@ Marginalia builds towards a seamless experience for listening to podcasts and ca
 │                           User Browser                               │
 │  ┌─────────────────────────────────────────────────────────────┐    │
 │  │                    Next.js Frontend                          │    │
-│  │  - Search page (/)                                           │    │
-│  │  - Search results (/search)                                  │    │
-│  │  - Podcast detail (/podcast/[id])                           │    │
-│  │  - Episode player (/episode/[id])                           │    │
+│  │  - Home + search (/)                                         │    │
+│  │  - Podcast detail (/podcast?id=X)                            │    │
+│  │  - Episode player (/episode?id=X&guid=Y)                     │    │
 │  └─────────────────────┬───────────────────────────────────────┘    │
 │                        │                                             │
 │         Audio streams directly from podcast CDN                      │
@@ -64,38 +70,37 @@ Marginalia builds towards a seamless experience for listening to podcasts and ca
                          ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                      FastAPI Backend                                 │
-│  - /search → proxies Apple Podcasts API                             │
-│  - /podcasts/{id} → fetches + caches RSS feed                       │
-│  - /episodes/{id}/transcribe → submits to ElevenLabs                │
-│  - /transcription-jobs/{id} → polls job status                      │
-│  - /notes → CRUD for user annotations                               │
+│  - /search → proxies Podcast Index API                              │
+│  - /podcast/{id} → podcast info from Podcast Index                  │
+│  - /feed?url=X → fetches + parses RSS feed                          │
+│  - /transcribe → submits to AssemblyAI                              │
+│  - /transcript/{guid} → returns transcript with annotations         │
 └─────────────────────┬───────────────────┬───────────────────────────┘
                       │                   │
                       ▼                   ▼
 ┌─────────────────────────────┐   ┌─────────────────────────────┐
-│        Supabase             │   │      ElevenLabs Scribe      │
-│  (Phase 2+)                 │   │  - Submit audio URL         │
-│  - transcripts              │   │  - Poll for completion      │
-│  - transcript_words         │   │  - Returns timestamped      │
-│  - notes                    │   │    diarized transcript      │
-│  - transcription_jobs       │   │                             │
+│     SQLite (local dev)      │   │        AssemblyAI           │
+│  - transcripts              │   │  - Submit audio URL         │
+│  - transcript words         │   │  - Speaker diarization      │
+│  - paragraphs               │   │  - Paragraph detection      │
+│  - transcription_jobs       │   │  - Word-level timestamps    │
+│                             │   └─────────────────────────────┘
+│  → Supabase (production)    │
+└─────────────────────────────┘   ┌─────────────────────────────┐
+                                  │       Claude Haiku          │
+┌─────────────────────────────┐   │  - Speaker identification   │
+│    In-Memory LRU Cache      │   │  - Content bounds detection │
+│  - Trending podcasts (5min) │   │  - Structured outputs       │
 └─────────────────────────────┘   └─────────────────────────────┘
-
-┌─────────────────────────────┐
-│    In-Memory LRU Cache      │
-│  - Podcast search results   │
-│  - RSS feed responses       │
-│  - TTL: 30 min              │
-└─────────────────────────────┘
 ```
 
 **Key data flows:**
 
-1. **Search**: User searches → Frontend calls `/search` → Backend proxies to Apple Podcasts API (LRU cached) → Returns validated results via Pydantic
-2. **Browse podcast**: User clicks podcast → Frontend calls `/podcasts/{id}` → Backend fetches RSS feed (LRU cached, 30min TTL) → Returns episodes
-3. **Play episode**: User clicks play → Frontend streams audio directly from RSS `<enclosure>` URL. Podcast CDNs support HTTP range requests, enabling full seek/skip controls.
-4. **Transcribe**: User clicks "Request transcription" → Backend submits audio URL to ElevenLabs → Creates job record in Supabase → Frontend polls `/transcription-jobs/{id}` → On completion, transcript stored in Supabase
-5. **Take notes**: User highlights transcript text → Modal appears → User types note → Frontend calls `POST /notes` → Stored in Supabase
+1. **Search**: User searches → Frontend calls `/search` → Backend proxies to Podcast Index API → Returns validated results
+2. **Browse podcast**: User clicks podcast → Frontend calls `/podcast/{id}` + `/feed?url=X` → Returns podcast info and episodes
+3. **Play episode**: User clicks play → Frontend streams audio directly from RSS `<enclosure>` URL. Podcast CDNs support HTTP range requests.
+4. **Transcribe**: User clicks "Request transcription" → Backend submits to AssemblyAI → Polls for completion → Fetches paragraphs → Claude Haiku analyzes for speaker names and content bounds → Stored in SQLite
+5. **Take notes**: User highlights transcript text → Inline margin note input appears → Note stored in React state (backend persistence planned)
 
 ---
 
@@ -262,66 +267,67 @@ Since podcasts/episodes are LRU-cached (not persisted), Supabase tables referenc
 ### `transcription_jobs`
 ```sql
 CREATE TABLE transcription_jobs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id TEXT PRIMARY KEY,                -- UUID
   episode_guid TEXT NOT NULL,         -- RSS <guid> element (unique per episode)
-  podcast_id TEXT NOT NULL,           -- Apple collection_id (for context)
+  podcast_id INTEGER NOT NULL,        -- Podcast Index ID
   audio_url TEXT NOT NULL,            -- Stored for retry/reference
-  elevenlabs_job_id TEXT,             -- ID from ElevenLabs API
+  assemblyai_id TEXT,                 -- ID from AssemblyAI API
   status TEXT NOT NULL DEFAULT 'pending',  -- pending, processing, completed, failed
   error_message TEXT,
-  created_at TIMESTAMP DEFAULT NOW(),
-  completed_at TIMESTAMP
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE INDEX idx_transcription_jobs_episode ON transcription_jobs(episode_guid);
-CREATE INDEX idx_transcription_jobs_status ON transcription_jobs(status);
 ```
 
 ### `transcripts`
 
-ElevenLabs Scribe returns word-level data. We store this granularly for precise highlighting and transcript display.
+AssemblyAI returns word-level data with speaker diarization. We also fetch paragraph boundaries separately and run Claude Haiku for speaker identification and content bounds.
 
-**ElevenLabs Response Model** (from their API):
+**AssemblyAI Response Model:**
 ```
-SpeechToTextChunkResponseModel:
-  language_code: string           # e.g. "eng"
-  language_probability: float     # 0-1 confidence
-  text: string                    # full raw transcription
-  words: [SpeechToTextWordResponseModel]
+TranscriptResponse:
+  id: string                      # transcript ID
+  status: string                  # "completed", "error", etc.
+  text: string                    # full transcript text
+  words: [Word]
+  utterances: [Utterance]         # speaker-grouped segments
 
-SpeechToTextWordResponseModel:
-  text: string                    # the word/sound transcribed
-  start: float | null             # start time in seconds
-  end: float | null               # end time in seconds
-  type: "word" | "spacing" | "audio_event"
-  speaker_id: string | null       # speaker identifier for diarization
+Word:
+  text: string                    # the word transcribed
+  start: int                      # start time in milliseconds
+  end: int                        # end time in milliseconds
+  confidence: float               # 0-1 confidence
+  speaker: string | null          # "A", "B", etc.
+
+Utterance:
+  speaker: string                 # "A", "B", etc.
+  text: string
+  start: int
+  end: int
+  words: [Word]
 ```
 
-**Our storage schema:**
+**Claude Haiku Analysis (structured output):**
+```python
+class TranscriptAnalysis(BaseModel):
+    content_start_ms: int              # Where actual content begins (skip intro music)
+    content_end_ms: int | None         # Where content ends (skip outro)
+    speaker_labels: dict[str, str]     # {"A": "Ben Gilbert", "B": "David Rosenthal"}
+```
+
+**Our storage schema (SQLite):**
 ```sql
 CREATE TABLE transcripts (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  episode_guid TEXT NOT NULL UNIQUE,  -- RSS <guid> element
-  podcast_id TEXT NOT NULL,           -- Apple collection_id (for context)
-  language_code TEXT,
-  language_probability FLOAT,
-  raw_text TEXT,                      -- full transcript text for quick access
-  created_at TIMESTAMP DEFAULT NOW()
+  episode_guid TEXT PRIMARY KEY,
+  podcast_id INTEGER NOT NULL,
+  audio_duration INTEGER,             -- total duration in ms
+  confidence REAL,
+  words_json TEXT,                    -- JSON array of word objects
+  paragraphs_json TEXT,               -- JSON array of paragraph objects
+  content_start_ms INTEGER DEFAULT 0, -- where content begins (skip intro)
+  content_end_ms INTEGER,             -- where content ends (skip outro)
+  speaker_labels_json TEXT,           -- JSON: {"A": "Name", "B": "Name"}
+  created_at TEXT DEFAULT CURRENT_TIMESTAMP
 );
-
-CREATE TABLE transcript_words (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  transcript_id UUID REFERENCES transcripts(id),
-  word_index INTEGER NOT NULL,      -- ordering
-  text TEXT NOT NULL,
-  start_time FLOAT,                 -- seconds (null for spacing)
-  end_time FLOAT,                   -- seconds (null for spacing)
-  word_type TEXT NOT NULL,          -- "word", "spacing", "audio_event"
-  speaker_id TEXT                   -- "speaker_0", "speaker_1", etc.
-);
-
-CREATE INDEX idx_transcript_words_transcript_id ON transcript_words(transcript_id);
-CREATE INDEX idx_transcript_words_time ON transcript_words(transcript_id, start_time);
 ```
 
 ### `notes`
@@ -398,9 +404,9 @@ CREATE INDEX idx_notes_podcast ON notes(podcast_id);
 | - | `highlight_url` | `{app_url}/episode/{guid}?t={timestamp}` |
 
 **Note on diarization vs identification:**
-- **Diarization** separates speakers ("Speaker 1", "Speaker 2") without knowing who they are
-- **Identification** would know the actual person ("Joe Rogan", "Guest Name")
-- ElevenLabs Scribe provides diarization. Identification would require additional work (voice fingerprinting, manual labeling). Out of scope for now.
+- **Diarization** separates speakers ("A", "B") without knowing who they are
+- **Identification** maps to actual names ("Ben Gilbert", "David Rosenthal")
+- AssemblyAI provides diarization. We use Claude Haiku to identify speakers from context (podcast metadata + transcript content).
 
 ---
 
@@ -410,52 +416,34 @@ CREATE INDEX idx_notes_podcast ON notes(podcast_id);
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `GET` | `/search?q={term}` | Proxy to Apple Podcasts API. Returns validated podcast list. |
-| `GET` | `/podcasts/{id}` | Fetch podcast details + episode list from RSS feed. Caches in Supabase. |
-| `GET` | `/episodes/{id}` | Fetch single episode details. |
+| `GET` | `/search?q={term}` | Search podcasts via Podcast Index API. |
+| `GET` | `/trending` | Get trending podcasts (cached 5min). |
+| `GET` | `/podcast/{id}` | Get podcast info from Podcast Index. |
+| `GET` | `/feed?url={rss_url}` | Fetch and parse RSS feed. Returns episodes. |
 
 ### Transcription
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/episodes/{id}/transcribe` | Start transcription job. Submits audio URL to ElevenLabs. Returns job ID. |
-| `GET` | `/transcription-jobs/{id}` | Poll job status. Returns `{status, progress?, error?}`. |
-| `GET` | `/episodes/{id}/transcript` | Get completed transcript with segments. 404 if not yet transcribed. |
+| `POST` | `/transcribe` | Start transcription job. Body: `{episode_guid, podcast_id, audio_url, ...metadata}`. |
+| `GET` | `/transcribe/{job_id}` | Poll job status. Returns `{status, error_message?}`. |
+| `GET` | `/transcript/{episode_guid}` | Get completed transcript with words, paragraphs, speaker labels. |
 
-### Notes
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `POST` | `/notes` | Create a note. Body includes episode metadata for denormalization (see schema below). |
-| `GET` | `/notes?episode_guid={guid}` | Get all notes for an episode. |
-| `GET` | `/notes` | Get all notes (paginated). |
-| `PUT` | `/notes/{id}` | Update note text only. |
-| `DELETE` | `/notes/{id}` | Delete a note. |
-
-**Create note request body:**
-```json
-{
-  "episode_guid": "abc123",
-  "podcast_id": "1050462261",
-  "episode_title": "Episode 42: The Story",
-  "podcast_name": "Acquired",
-  "podcast_author": "Ben Gilbert and David Rosenthal",
-  "artwork_url": "https://...",
-  "audio_url": "https://...",
-  "highlighted_text": "The text the user highlighted",
-  "note_text": "User's annotation (optional)",
-  "timestamp_start": 1234.5,
-  "timestamp_end": 1245.2,
-  "start_word_index": 500,
-  "end_word_index": 520
-}
-```
-
-### Export (Phase 5)
+### Notes (Planned)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/export/readwise` | Export notes to Readwise. Body: `{note_ids?: string[], readwise_token: string}`. Transforms notes to Readwise highlight format and sends to their API. |
+| `POST` | `/annotations` | Create annotation. |
+| `GET` | `/annotations?episode_guid={guid}` | Get annotations for an episode. |
+| `GET` | `/annotations` | Get all user annotations (paginated). |
+| `PUT` | `/annotations/{id}` | Update annotation. |
+| `DELETE` | `/annotations/{id}` | Delete annotation. |
+
+### Export (Planned)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/export/readwise` | Export annotations to Readwise. |
 
 ---
 
@@ -521,50 +509,96 @@ CREATE INDEX idx_notes_podcast ON notes(podcast_id);
 - [x] Infinite scroll for episode lists
 - [x] Media key sync (play/pause)
 
-**No Supabase, no ElevenLabs—pure search/browse/play.**
-
-### Phase 2: Transcription Pipeline
+### Phase 2: Transcription Pipeline ✅
 **Goal:** Enable transcript generation and display.
 
-- [ ] Set up Supabase project and tables
-- [ ] Implement podcast/episode caching in Supabase
-- [ ] Integrate ElevenLabs Scribe v2 API
-- [ ] Implement `POST /episodes/{id}/transcribe` (submit job)
-- [ ] Implement `GET /transcription-jobs/{id}` (poll status)
-- [ ] Implement `GET /episodes/{id}/transcript` (fetch result)
-- [ ] Build transcript display component
-- [ ] Implement auto-scroll sync with audio playback
-- [ ] Implement click-to-seek on transcript segments
-- [ ] Handle transcription states in UI (pending, processing, complete, failed)
+- [x] Integrate AssemblyAI for transcription with speaker diarization
+- [x] Implement `POST /transcribe` (submit job)
+- [x] Implement `GET /transcribe/{id}` (poll status)
+- [x] Implement `GET /transcript/{guid}` (fetch result)
+- [x] Store transcripts in SQLite with word-level timestamps
+- [x] Fetch paragraph boundaries from AssemblyAI
+- [x] Build transcript display component with speaker labels
+- [x] Click-to-seek at paragraph level
+- [x] Handle transcription states in UI (pending, processing, complete, failed)
+- [x] LLM analysis with Claude Haiku:
+  - [x] Content bounds detection (skip intro/outro music)
+  - [x] Speaker identification (map speaker IDs to names)
+  - [x] Structured outputs via Anthropic beta API
 
-### Phase 3: Notes System
-**Goal:** Enable capturing and reviewing notes.
+### Phase 3: Annotations ✅
+**Goal:** Enable capturing and reviewing notes inline with transcripts.
 
-- [ ] Implement notes table and API endpoints
-- [ ] Build text selection → note creation flow
-- [ ] Build note creation modal
-- [ ] Build notes sidebar/panel on episode page
-- [ ] Click note to seek to timestamp
-- [ ] Edit/delete notes
+- [x] Text selection triggers annotation input (highlight text → add note)
+- [x] Inline margin notes positioned next to source paragraphs
+- [x] Click note to seek audio to that timestamp
+- [x] Edit notes inline (click note text to edit)
+- [x] Delete notes (hover to reveal delete button)
+- [x] "View all notes" sidebar toggle
+- [x] Notes stored in component state (backend persistence in Phase 4)
 
-### Phase 4: Authentication
-**Goal:** Add user accounts so notes persist per-user.
+### Phase 4: MCP Server
+**Goal:** Expose transcripts and annotations via MCP for use in Claude Desktop and other tools.
 
+The insight: rather than building a chat UI (which would duplicate Claude Desktop), expose the data where it's most useful. Users can query their podcast knowledge base from any MCP-enabled client. This can work with local SQLite initially.
+
+- [ ] Create MCP server package
+- [ ] `search_transcripts(query)` - full-text search across transcribed episodes
+- [ ] `get_transcript(episode_guid)` - get full transcript for an episode
+- [ ] `get_annotations(episode_guid?)` - retrieve user's notes with context
+- [ ] `list_transcribed_episodes()` - see what's available
+- [ ] Package for easy local installation
+- [ ] Test with Claude Desktop
+
+### Phase 5: Auth + User Management
+**Goal:** Add user accounts, persist data, deploy to production.
+
+- [ ] Set up Supabase project with Postgres
+- [ ] Migrate SQLite schema to Supabase
 - [ ] Set up Supabase Auth with Google OAuth
 - [ ] Add login/logout UI
-- [ ] Add `user_id` foreign key to notes table
-- [ ] Protect note endpoints with JWT validation in FastAPI
-- [ ] Handle unauthenticated state gracefully in UI
+- [ ] Add `user_id` to annotations table with RLS
+- [ ] Protect API endpoints with JWT validation
+- [ ] Deploy frontend to Vercel
+- [ ] Deploy backend to Fly.io
+- [ ] Update MCP server to use Supabase + auth
 
-### Phase 5: Polish & Future Features
-**Goal:** Refinements and optional integrations.
+### Phase 6: Subscriptions + Pre-emptive Transcription
+**Goal:** Users subscribe to podcasts; new episodes auto-transcribe.
 
-- [ ] Readwise integration (export notes)
-- [ ] Recently played / listening history
-- [ ] Podcast subscriptions / following
-- [ ] Mobile responsiveness improvements
-- [ ] Voice note capture (STT)
-- [ ] Speaker identification / labeling
+- [ ] Podcast subscriptions (users can follow podcasts)
+- [ ] Background job to poll RSS feeds for new episodes
+- [ ] Queue transcription jobs for subscribed podcasts
+- [ ] Prioritization (most-subscribed podcasts first)
+- [ ] User notification when transcription completes
+- [ ] Cost management:
+  - Free tier: on-demand transcription only
+  - Paid tier: auto-transcription for subscriptions
+  - Or: community pooling (transcribe once, share across subscribers)
+
+### Phase 7: Analytics + Observability
+**Goal:** Understand how people use Marginalia.
+
+Key events to track:
+- [ ] Searches (what are people looking for?)
+- [ ] Transcription requests (conversion to paid feature)
+- [ ] Annotation creates/edits/deletes (engagement with core feature)
+- [ ] Seek events from notes (are annotations useful for navigation?)
+- [ ] MCP tool calls (how is the API being used?)
+- [ ] Errors (failed transcriptions, API failures)
+
+Implementation:
+- [ ] Event logging to Supabase or dedicated analytics (PostHog, Mixpanel)
+- [ ] Basic dashboard for usage metrics
+
+### Future Ideas
+- Readwise integration (export annotations)
+- Listening history and resume position
+- Voice note capture (STT for quick annotations)
+- Mobile app / PWA
+- Shared annotations (public highlights from a podcast)
+- Podcast recommendations based on listening patterns
+- Episode summaries generated from transcript
 
 ---
 
@@ -633,11 +667,11 @@ marginalia/
         └── types.ts            # TypeScript interfaces
 ```
 
-**Planned (Phase 2+):**
+**Planned (Phase 5+):**
 ```
 ├── backend/
 │   ├── services/
-│   │   ├── elevenlabs.py       # ElevenLabs Scribe client
+│   │   ├── assemblyai.py       # AssemblyAI client (if refactored)
 │   │   └── supabase.py         # Supabase client
 ├── frontend/
 │   ├── components/
