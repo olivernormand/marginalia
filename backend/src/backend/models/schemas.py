@@ -58,3 +58,16 @@ class PodcastInfoResponse(BaseModel):
     explicit: bool = False
     categories: dict[str, str] | None = None
     link: str | None = None  # Website URL
+
+
+class TrendingPodcast(BaseModel):
+    """Pydantic model for a trending podcast from Podcast Index."""
+
+    id: int
+    title: str
+    description: str | None = None
+    author: str | None = None
+    artwork: str | None = None
+    trend_score: int | None = None
+    language: str | None = None
+    categories: dict[str, str] | None = None

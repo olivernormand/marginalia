@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Search } from "lucide-react";
 import Link from "next/link";
 import { PodcastFeed, PodcastEpisode, PodcastInfo } from "@/lib/types";
 import { API_BASE } from "@/lib/config";
@@ -22,6 +22,7 @@ function PodcastContent() {
   const [currentEpisode, setCurrentEpisode] = useState<PodcastEpisode | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [visibleCount, setVisibleCount] = useState(EPISODES_PER_BATCH);
+  const [episodeSearch, setEpisodeSearch] = useState("");
   const sentinelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -61,15 +62,24 @@ function PodcastContent() {
     fetchPodcast();
   }, [podcastId]);
 
+  // Filter episodes based on search
+  const filteredEpisodes = feed
+    ? episodeSearch
+      ? feed.episodes.filter((ep) =>
+          ep.title.toLowerCase().includes(episodeSearch.toLowerCase())
+        )
+      : feed.episodes
+    : [];
+
   // Intersection Observer for infinite scroll
   useEffect(() => {
-    if (!feed || visibleCount >= feed.episodes.length) return;
+    if (!feed || visibleCount >= filteredEpisodes.length) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
         if (entries[0].isIntersecting) {
           setVisibleCount((prev) =>
-            Math.min(prev + EPISODES_PER_BATCH, feed.episodes.length)
+            Math.min(prev + EPISODES_PER_BATCH, filteredEpisodes.length)
           );
         }
       },
@@ -86,7 +96,7 @@ function PodcastContent() {
         observer.unobserve(sentinel);
       }
     };
-  }, [feed, visibleCount]);
+  }, [feed, visibleCount, filteredEpisodes.length]);
 
   const handleEpisodePlay = (episode: PodcastEpisode) => {
     if (currentEpisode?.guid === episode.guid && isPlaying) {
@@ -152,32 +162,56 @@ function PodcastContent() {
           </div>
 
           <div className="border-t border-gray-100 pt-6">
-            <h2 className="text-xl font-serif mb-4 text-gray-900">
-              Episodes ({feed.episodes.length})
-            </h2>
-            <div className={`space-y-2 ${currentEpisode ? "pb-24" : ""}`}>
-              {feed.episodes.slice(0, visibleCount).map((episode, index) => (
-                <EpisodeCard
-                  key={episode.guid || index}
-                  episode={episode}
-                  index={index}
-                  isPlaying={isPlaying}
-                  isCurrentEpisode={currentEpisode?.guid === episode.guid}
-                  onPlay={handleEpisodePlay}
-                  onEpisodeClick={handleEpisodeClick}
-                  podcastArtwork={feed.artwork_url || podcastInfo.artwork}
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-serif text-gray-900">
+                Episodes ({feed.episodes.length})
+              </h2>
+              <div className="relative">
+                <Search
+                  size={16}
+                  className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
                 />
-              ))}
-              {/* Sentinel for infinite scroll */}
-              {visibleCount < feed.episodes.length && (
-                <div
-                  ref={sentinelRef}
-                  className="py-4 text-center text-gray-400 text-sm"
-                >
-                  Loading more episodes...
-                </div>
-              )}
+                <input
+                  type="text"
+                  placeholder="Search episodes..."
+                  value={episodeSearch}
+                  onChange={(e) => {
+                    setEpisodeSearch(e.target.value);
+                    setVisibleCount(EPISODES_PER_BATCH); // Reset pagination on search
+                  }}
+                  className="pl-9 pr-3 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-200 w-64"
+                />
+              </div>
             </div>
+            {filteredEpisodes.length === 0 && episodeSearch ? (
+              <div className="text-center py-8 text-gray-500">
+                No episodes match "{episodeSearch}"
+              </div>
+            ) : (
+              <div className={`space-y-2 ${currentEpisode ? "pb-24" : ""}`}>
+                {filteredEpisodes.slice(0, visibleCount).map((episode, index) => (
+                  <EpisodeCard
+                    key={episode.guid || index}
+                    episode={episode}
+                    index={index}
+                    isPlaying={isPlaying}
+                    isCurrentEpisode={currentEpisode?.guid === episode.guid}
+                    onPlay={handleEpisodePlay}
+                    onEpisodeClick={handleEpisodeClick}
+                    podcastArtwork={feed.artwork_url || podcastInfo.artwork}
+                  />
+                ))}
+                {/* Sentinel for infinite scroll */}
+                {visibleCount < filteredEpisodes.length && (
+                  <div
+                    ref={sentinelRef}
+                    className="py-4 text-center text-gray-400 text-sm"
+                  >
+                    Loading more episodes...
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </>
       )}

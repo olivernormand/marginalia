@@ -46,3 +46,14 @@ export interface PodcastFeed {
   artwork_url: string | null;
   episodes: PodcastEpisode[];
 }
+
+export interface TrendingPodcast {
+  id: number;
+  title: string;
+  description: string | null;
+  author: string | null;
+  artwork: string | null;
+  trend_score: number | null;
+  language: string | null;
+  categories: Record<string, string> | null;
+}

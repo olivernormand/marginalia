@@ -17,6 +17,7 @@ from backend.models.schemas import (
     PodcastFeedResponse,
     PodcastInfoResponse,
     PodcastSearchResult,
+    TrendingPodcast,
 )
 from backend.rss import parse_rss_feed
 
@@ -25,6 +26,10 @@ app = FastAPI(
     description="Backend API for Marginalia podcast app",
     version="0.1.0",
 )
+
+# Simple in-memory cache for trending podcasts
+_trending_cache: dict[str, tuple[float, list]] = {}
+TRENDING_CACHE_TTL = 300  # 5 minutes in seconds
 
 app.add_middleware(
     CORSMiddleware,
@@ -143,6 +148,60 @@ async def get_podcast(podcast_id: int) -> PodcastInfoResponse:
         categories=feed.get("categories"),
         link=feed.get("link"),
     )
+
+
+@app.get("/trending")
+async def get_trending_podcasts(
+    max: int = Query(5, ge=1, le=20),
+) -> list[TrendingPodcast]:
+    """Get trending podcasts from Podcast Index (cached for 5 minutes)."""
+    cache_key = f"trending_{max}"
+    now = time.time()
+
+    # Check cache
+    if cache_key in _trending_cache:
+        cached_time, cached_data = _trending_cache[cache_key]
+        if now - cached_time < TRENDING_CACHE_TTL:
+            return cached_data
+
+    # Fetch fresh data
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{PODCAST_INDEX_BASE_URL}/podcasts/trending",
+            params={"max": max},
+            headers=get_podcast_index_headers(),
+        )
+
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail="Failed to fetch from Podcast Index API",
+            )
+
+        data = response.json()
+
+    podcasts = []
+    for item in data.get("feeds", []):
+        try:
+            podcasts.append(
+                TrendingPodcast(
+                    id=item["id"],
+                    title=item.get("title", ""),
+                    description=item.get("description"),
+                    author=item.get("author"),
+                    artwork=item.get("artwork"),
+                    trend_score=item.get("trendScore"),
+                    language=item.get("language"),
+                    categories=item.get("categories"),
+                )
+            )
+        except Exception:
+            continue
+
+    # Store in cache
+    _trending_cache[cache_key] = (now, podcasts)
+
+    return podcasts
 
 
 @app.get("/feed")
