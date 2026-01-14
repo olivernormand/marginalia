@@ -145,34 +145,52 @@ export function getUtterances(
   }
   speakerGroups.push({ speaker: currentSpeaker, words: currentWords });
 
-  // Build utterances from speaker groups, using paragraph boundaries
+  // Build utterances from speaker groups
+  // For each group, we need to find paragraphs and potentially split them at speaker boundaries
   const result: TranscriptUtterance[] = [];
 
   for (const group of speakerGroups) {
-    const start = group.words[0].start;
-    const end = group.words[group.words.length - 1].end;
+    const groupStart = group.words[0].start;
+    const groupEnd = group.words[group.words.length - 1].end;
 
-    // Find paragraphs that overlap with this speaker group
-    const overlappingParas = paragraphs
-      ? paragraphs.filter((p) => p.start < end && p.end > start)
-      : [];
+    // Build paragraph segments for this speaker using their actual words
+    const groupParagraphs: UtteranceParagraph[] = [];
 
-    if (overlappingParas.length > 0) {
-      result.push({
-        speaker: group.speaker,
-        start,
-        end,
-        paragraphs: overlappingParas.map((p) => ({ text: p.text, start: p.start })),
-      });
-    } else {
-      // Fallback: join words as single paragraph
-      result.push({
-        speaker: group.speaker,
-        start,
-        end,
-        paragraphs: [{ text: group.words.map((w) => w.text).join(" "), start }],
+    if (paragraphs && paragraphs.length > 0) {
+      // Find paragraphs that overlap with this speaker group
+      const overlappingParas = paragraphs.filter(
+        (p) => p.start < groupEnd && p.end > groupStart
+      );
+
+      for (const para of overlappingParas) {
+        // Get the words from this speaker that fall within this paragraph's time range
+        const paraWords = group.words.filter(
+          (w) => w.start >= para.start && w.start < para.end
+        );
+
+        if (paraWords.length > 0) {
+          groupParagraphs.push({
+            text: paraWords.map((w) => w.text).join(" "),
+            start: paraWords[0].start,
+          });
+        }
+      }
+    }
+
+    // Fallback if no paragraphs matched: use all words as single paragraph
+    if (groupParagraphs.length === 0) {
+      groupParagraphs.push({
+        text: group.words.map((w) => w.text).join(" "),
+        start: groupStart,
       });
     }
+
+    result.push({
+      speaker: group.speaker,
+      start: groupStart,
+      end: groupEnd,
+      paragraphs: groupParagraphs,
+    });
   }
 
   return result;
