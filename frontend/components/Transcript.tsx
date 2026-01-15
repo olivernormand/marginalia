@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { X } from "lucide-react";
 import { Transcript as TranscriptType, getUtterances, UtteranceParagraph } from "@/lib/types";
 
@@ -41,6 +41,30 @@ function formatDuration(ms: number): string {
   const mins = Math.floor(totalSeconds / 60);
   const secs = totalSeconds % 60;
   return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
+}
+
+// Pastel color palette for speaker distinction
+const SPEAKER_COLORS = [
+  "bg-blue-100",
+  "bg-amber-100",
+  "bg-emerald-100",
+  "bg-rose-100",
+  "bg-violet-100",
+  "bg-cyan-100",
+  "bg-orange-100",
+  "bg-teal-100",
+];
+
+// Get consistent color for a speaker name
+function getSpeakerColor(speakerName: string | null, speakerMap: Map<string, string>): string {
+  if (!speakerName) return "bg-gray-100";
+
+  if (!speakerMap.has(speakerName)) {
+    const colorIndex = speakerMap.size % SPEAKER_COLORS.length;
+    speakerMap.set(speakerName, SPEAKER_COLORS[colorIndex]);
+  }
+
+  return speakerMap.get(speakerName)!;
 }
 
 interface MarginNoteProps {
@@ -199,6 +223,15 @@ export default function Transcript({
   const utterances = getUtterances(transcript.words, transcript.paragraphs);
   const currentTimeMs = currentTime * 1000;
 
+  // Build speaker color map based on unique speaker names
+  const speakerColorMap = useMemo(() => {
+    const map = new Map<string, string>();
+    utterances.forEach((u) => {
+      if (u.speaker) getSpeakerColor(u.speaker, map);
+    });
+    return map;
+  }, [utterances]);
+
   const handleMouseUp = (para: UtteranceParagraph, speaker: string | null) => {
     const selection = window.getSelection()?.toString().trim() || "";
     if (selection.length > 0) {
@@ -239,18 +272,18 @@ export default function Transcript({
     transcript.content_end_ms < transcript.audio_duration;
 
   return (
-    <div className="space-y-6">
+    <div>
       {/* Skipped intro indicator */}
       {skippedIntro && (
-        <p className="text-sm text-gray-400 italic">
+        <p className="text-sm text-gray-400 italic mb-4">
           {formatDuration(transcript.content_start_ms)} of intro skipped
         </p>
       )}
 
       {utterances.map((utterance, index) => (
-        <div key={index} className="space-y-4">
-          <div className="flex items-baseline gap-3">
-            <span className="text-sm font-medium text-gray-900">
+        <div key={index} className="space-y-1">
+          <div className={`flex items-baseline gap-3 ${index === 0 ? "mt-0" : "mt-5"}`}>
+            <span className={`text-sm font-medium text-gray-900 px-2 py-0.5 rounded ${getSpeakerColor(utterance.speaker, speakerColorMap)}`}>
               {utterance.speaker || "Speaker"}
             </span>
             <span className="text-xs text-gray-400">
@@ -311,7 +344,7 @@ export default function Transcript({
 
       {/* Skipped outro indicator */}
       {skippedOutro && (
-        <p className="text-sm text-gray-400 italic">
+        <p className="text-sm text-gray-400 italic mt-6">
           {formatDuration(
             transcript.audio_duration - transcript.content_end_ms!
           )}{" "}
