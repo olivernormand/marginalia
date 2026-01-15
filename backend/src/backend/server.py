@@ -49,9 +49,14 @@ app = FastAPI(
 _trending_cache: dict[str, tuple[float, list]] = {}
 TRENDING_CACHE_TTL = 300  # 5 minutes in seconds
 
+# CORS: Allow localhost for dev, production URLs via env var
+_cors_origins = ["http://localhost:3000", "http://localhost:3001"]
+if os.getenv("CORS_ORIGINS"):
+    _cors_origins.extend(os.getenv("CORS_ORIGINS", "").split(","))
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
