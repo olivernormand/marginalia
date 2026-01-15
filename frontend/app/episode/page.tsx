@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, Loader2, FileText, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import {
   PodcastEpisode,
@@ -16,11 +16,15 @@ import { BookmarkPlus } from "lucide-react";
 import AudioPlayer from "@/components/AudioPlayer";
 import TranscriptView, { SavedAnnotation } from "@/components/Transcript";
 import AnnotationSidebar from "@/components/AnnotationSidebar";
+import { EpisodeHeaderSkeleton, TranscriptSkeleton } from "@/components/Skeleton";
+import { useAuth } from "@/context/AuthContext";
+import * as api from "@/lib/api";
 
 const POLL_INTERVAL = 3000; // 3 seconds
 
 function EpisodeContent() {
   const searchParams = useSearchParams();
+  const { session } = useAuth();
 
   // Get episode by podcast ID + guid
   const podcastId = searchParams.get("id");
@@ -45,6 +49,34 @@ function EpisodeContent() {
   // Annotation state
   const [annotations, setAnnotations] = useState<SavedAnnotation[]>([]);
   const [showAllNotes, setShowAllNotes] = useState(false);
+
+  // Load annotations from backend when transcript is available
+  useEffect(() => {
+    if (!guid || !session?.access_token || !transcript) return;
+
+    const loadAnnotations = async () => {
+      try {
+        const backendAnnotations = await api.getAnnotations(
+          session.access_token,
+          guid
+        );
+        // Map backend format to frontend SavedAnnotation format
+        setAnnotations(
+          backendAnnotations.map((a) => ({
+            id: a.id,
+            text: a.text,
+            note: a.note,
+            speaker: a.speaker,
+            startMs: a.start_ms,
+          }))
+        );
+      } catch (err) {
+        console.error("Failed to load annotations:", err);
+      }
+    };
+
+    loadAnnotations();
+  }, [guid, session?.access_token, transcript]);
 
   // Fetch episode data
   useEffect(() => {
@@ -204,41 +236,111 @@ function EpisodeContent() {
   }, []);
 
   const handleSaveAnnotation = useCallback(
-    (text: string, note: string, speaker: string | null, startMs: number) => {
+    async (text: string, note: string, speaker: string | null, startMs: number) => {
+      // Optimistically add to UI
+      const tempId = crypto.randomUUID();
       const newAnnotation: SavedAnnotation = {
-        id: crypto.randomUUID(),
+        id: tempId,
         text,
         note,
         speaker,
         startMs,
       };
       setAnnotations((prev) => [newAnnotation, ...prev]);
+
+      // Persist to backend if logged in
+      if (session?.access_token && podcastId && guid) {
+        try {
+          const saved = await api.createAnnotation(session.access_token, {
+            podcast_id: parseInt(podcastId),
+            episode_guid: guid,
+            text,
+            note,
+            speaker,
+            start_ms: startMs,
+          });
+          // Update with real ID from backend
+          setAnnotations((prev) =>
+            prev.map((a) =>
+              a.id === tempId ? { ...a, id: saved.id } : a
+            )
+          );
+        } catch (err) {
+          console.error("Failed to save annotation:", err);
+          // Could show a toast here, but annotation stays in UI
+        }
+      }
     },
-    []
+    [session?.access_token, podcastId, guid]
   );
 
-  const handleEditAnnotation = useCallback((id: string, note: string) => {
-    setAnnotations((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, note } : a))
-    );
-  }, []);
+  const handleEditAnnotation = useCallback(
+    async (id: string, note: string) => {
+      // Optimistically update UI
+      setAnnotations((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, note } : a))
+      );
 
-  const handleDeleteAnnotation = useCallback((id: string) => {
-    setAnnotations((prev) => prev.filter((a) => a.id !== id));
-  }, []);
+      // Persist to backend if logged in
+      if (session?.access_token) {
+        try {
+          await api.updateAnnotation(session.access_token, id, note);
+        } catch (err) {
+          console.error("Failed to update annotation:", err);
+        }
+      }
+    },
+    [session?.access_token]
+  );
+
+  const handleDeleteAnnotation = useCallback(
+    async (id: string) => {
+      // Optimistically remove from UI
+      setAnnotations((prev) => prev.filter((a) => a.id !== id));
+
+      // Delete from backend if logged in
+      if (session?.access_token) {
+        try {
+          await api.deleteAnnotation(session.access_token, id);
+        } catch (err) {
+          console.error("Failed to delete annotation:", err);
+        }
+      }
+    },
+    [session?.access_token]
+  );
 
   if (isLoading) {
     return (
-      <div className="text-center py-12 text-gray-500">
-        Loading episode...
+      <div className="animate-in fade-in duration-300">
+        <div className="h-6 w-32 bg-gray-200 rounded animate-pulse mb-8" />
+        <EpisodeHeaderSkeleton />
+        <div className="border-t border-gray-100 pt-8 mt-8">
+          <div className="h-6 w-40 bg-gray-200 rounded animate-pulse mb-6" />
+          <TranscriptSkeleton />
+        </div>
       </div>
     );
   }
 
   if (error || !episode) {
     return (
-      <div className="text-center py-12 text-gray-500">
-        {error || "Episode not found"}
+      <div className="text-center py-16 animate-in fade-in duration-300">
+        <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-50 flex items-center justify-center">
+          <AlertCircle size={24} className="text-red-500" />
+        </div>
+        <p className="text-gray-900 font-medium mb-1">
+          {error || "Episode not found"}
+        </p>
+        <p className="text-gray-500 text-sm mb-4">
+          We couldn&apos;t load this episode
+        </p>
+        <Link
+          href="/"
+          className="text-sm text-gray-900 underline hover:no-underline"
+        >
+          Go back home
+        </Link>
       </div>
     );
   }
@@ -335,48 +437,68 @@ function EpisodeContent() {
           </div>
 
           {transcript ? (
-            <TranscriptView
-              transcript={transcript}
-              currentTime={currentTime}
-              onSeek={handleSeek}
-              annotations={annotations}
-              onSaveAnnotation={handleSaveAnnotation}
-              onEditAnnotation={handleEditAnnotation}
-              onDeleteAnnotation={handleDeleteAnnotation}
-            />
+            <div className="animate-in fade-in duration-300">
+              <TranscriptView
+                transcript={transcript}
+                currentTime={currentTime}
+                onSeek={handleSeek}
+                annotations={annotations}
+                onSaveAnnotation={handleSaveAnnotation}
+                onEditAnnotation={handleEditAnnotation}
+                onDeleteAnnotation={handleDeleteAnnotation}
+              />
+            </div>
           ) : (
-            <div className="py-12 text-center">
+            <div className="py-16 text-center animate-in fade-in duration-300">
               {isTranscribing ? (
-                <>
-                  <Loader2 className="w-6 h-6 animate-spin mx-auto mb-4 text-gray-400" />
-                  <p className="text-gray-500 mb-1">Transcribing episode...</p>
-                  <p className="text-sm text-gray-400">
-                    {transcriptionJob?.status || "starting"}
-                  </p>
-                </>
+                <div className="space-y-4">
+                  <div className="w-16 h-16 mx-auto rounded-full bg-gray-100 flex items-center justify-center">
+                    <Loader2 className="w-8 h-8 animate-spin text-gray-600" />
+                  </div>
+                  <div>
+                    <p className="text-gray-900 font-medium mb-1">Transcribing episode...</p>
+                    <p className="text-sm text-gray-500">
+                      {transcriptionJob?.status === "queued" && "Waiting in queue"}
+                      {transcriptionJob?.status === "processing" && "Processing audio"}
+                      {!transcriptionJob?.status && "Starting transcription"}
+                    </p>
+                  </div>
+                </div>
               ) : transcriptError ? (
-                <>
-                  <p className="text-red-600 mb-4">{transcriptError}</p>
-                  <button
-                    onClick={handleRequestTranscription}
-                    className="text-sm text-gray-900 underline hover:no-underline"
-                  >
-                    Try again
-                  </button>
-                </>
+                <div className="space-y-4">
+                  <div className="w-16 h-16 mx-auto rounded-full bg-red-50 flex items-center justify-center">
+                    <AlertCircle size={24} className="text-red-500" />
+                  </div>
+                  <div>
+                    <p className="text-gray-900 font-medium mb-1">Transcription failed</p>
+                    <p className="text-sm text-gray-500 mb-4">{transcriptError}</p>
+                    <button
+                      onClick={handleRequestTranscription}
+                      className="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors"
+                    >
+                      Try again
+                    </button>
+                  </div>
+                </div>
               ) : (
-                <>
-                  <p className="text-gray-500 mb-4">
-                    No transcript available yet.
-                  </p>
-                  <button
-                    onClick={handleRequestTranscription}
-                    disabled={!episode.audio_url}
-                    className="text-sm font-medium text-gray-900 underline hover:no-underline disabled:opacity-50 disabled:cursor-not-allowed disabled:no-underline"
-                  >
-                    Request transcription
-                  </button>
-                </>
+                <div className="space-y-4">
+                  <div className="w-16 h-16 mx-auto rounded-full bg-gray-100 flex items-center justify-center">
+                    <FileText size={24} className="text-gray-400" />
+                  </div>
+                  <div>
+                    <p className="text-gray-900 font-medium mb-1">No transcript yet</p>
+                    <p className="text-sm text-gray-500 mb-4">
+                      Generate a transcript to read along as you listen
+                    </p>
+                    <button
+                      onClick={handleRequestTranscription}
+                      disabled={!episode.audio_url}
+                      className="px-4 py-2 text-sm font-medium text-white bg-gray-900 rounded-lg hover:bg-gray-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      Generate transcript
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           )}
@@ -415,7 +537,10 @@ export default function EpisodePage() {
       <div className="max-w-4xl mx-auto px-8 py-12">
         <Suspense
           fallback={
-            <div className="text-center py-12 text-gray-500">Loading...</div>
+            <div className="animate-in fade-in duration-300">
+              <div className="h-6 w-32 bg-gray-200 rounded animate-pulse mb-8" />
+              <EpisodeHeaderSkeleton />
+            </div>
           }
         >
           <EpisodeContent />

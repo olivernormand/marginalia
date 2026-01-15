@@ -2,12 +2,13 @@
 
 import { Suspense, useEffect, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ArrowLeft, Search } from "lucide-react";
+import { ArrowLeft, Search, AlertCircle } from "lucide-react";
 import Link from "next/link";
 import { PodcastFeed, PodcastEpisode, PodcastInfo } from "@/lib/types";
 import { API_BASE } from "@/lib/config";
 import EpisodeCard from "@/components/EpisodeCard";
 import AudioPlayer from "@/components/AudioPlayer";
+import { Skeleton, EpisodeCardSkeleton } from "@/components/Skeleton";
 const EPISODES_PER_BATCH = 20;
 
 function PodcastContent() {
@@ -127,17 +128,47 @@ function PodcastContent() {
       </Link>
 
       {isLoading && (
-        <div className="text-center py-12 text-gray-500">
-          Loading podcast...
+        <div className="animate-in fade-in duration-300">
+          <div className="flex gap-6 mb-8">
+            <Skeleton className="w-32 h-32 rounded-lg flex-shrink-0" />
+            <div className="flex-1 space-y-3">
+              <Skeleton className="h-10 w-3/4" />
+              <Skeleton className="h-5 w-1/4" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-4 w-2/3" />
+            </div>
+          </div>
+          <div className="border-t border-gray-100 pt-6">
+            <Skeleton className="h-7 w-32 mb-4" />
+            <div className="space-y-2">
+              {[...Array(5)].map((_, i) => (
+                <EpisodeCardSkeleton key={i} />
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
       {error && (
-        <div className="text-center py-12 text-red-500">{error}</div>
+        <div className="text-center py-16 animate-in fade-in duration-300">
+          <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-50 flex items-center justify-center">
+            <AlertCircle size={24} className="text-red-500" />
+          </div>
+          <p className="text-gray-900 font-medium mb-1">{error}</p>
+          <p className="text-gray-500 text-sm mb-4">
+            We couldn&apos;t load this podcast
+          </p>
+          <Link
+            href="/"
+            className="text-sm text-gray-900 underline hover:no-underline"
+          >
+            Go back home
+          </Link>
+        </div>
       )}
 
       {!isLoading && feed && podcastInfo && (
-        <>
+        <div className="animate-in fade-in duration-300">
           <div className="flex gap-6 mb-8">
             {(feed.artwork_url || podcastInfo.artwork) && (
               <img
@@ -184,8 +215,14 @@ function PodcastContent() {
               </div>
             </div>
             {filteredEpisodes.length === 0 && episodeSearch ? (
-              <div className="text-center py-8 text-gray-500">
-                No episodes match "{episodeSearch}"
+              <div className="text-center py-12">
+                <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-gray-100 flex items-center justify-center">
+                  <Search size={20} className="text-gray-400" />
+                </div>
+                <p className="text-gray-900 font-medium mb-1">No episodes found</p>
+                <p className="text-gray-500 text-sm">
+                  No episodes match &quot;{episodeSearch}&quot;
+                </p>
               </div>
             ) : (
               <div className={`space-y-2 ${currentEpisode ? "pb-24" : ""}`}>
@@ -213,7 +250,7 @@ function PodcastContent() {
               </div>
             )}
           </div>
-        </>
+        </div>
       )}
 
       {currentEpisode && currentEpisode.audio_url && (
@@ -229,11 +266,27 @@ function PodcastContent() {
   );
 }
 
+function PodcastPageSkeleton() {
+  return (
+    <div className="animate-in fade-in duration-300">
+      <Skeleton className="h-6 w-28 mb-8" />
+      <div className="flex gap-6 mb-8">
+        <Skeleton className="w-32 h-32 rounded-lg flex-shrink-0" />
+        <div className="flex-1 space-y-3">
+          <Skeleton className="h-10 w-3/4" />
+          <Skeleton className="h-5 w-1/4" />
+          <Skeleton className="h-4 w-full" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function PodcastPage() {
   return (
     <div className="min-h-screen bg-white">
       <div className="max-w-4xl mx-auto px-8 py-12">
-        <Suspense fallback={<div className="text-center py-12 text-gray-500">Loading...</div>}>
+        <Suspense fallback={<PodcastPageSkeleton />}>
           <PodcastContent />
         </Suspense>
       </div>

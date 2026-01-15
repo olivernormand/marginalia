@@ -1,73 +1,57 @@
-"""SQLite database for storing transcription jobs and results."""
+"""Supabase database for storing transcription jobs and annotations."""
 
-import json
-import sqlite3
-from datetime import datetime
-from pathlib import Path
+import os
+from datetime import datetime, timezone
+from supabase import create_client, Client
 
-# Database file location
-DB_PATH = Path(__file__).parent.parent.parent / "data" / "marginalia.db"
+# Supabase client (uses private/service key for backend operations)
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "")
+SUPABASE_PRIVATE_KEY = os.environ.get("SUPABASE_PRIVATE_KEY", "")
 
-
-def get_connection() -> sqlite3.Connection:
-    """Get a database connection."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+_supabase: Client | None = None
 
 
-def init_db() -> None:
-    """Initialize the database schema."""
-    conn = get_connection()
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS transcriptions (
-            id TEXT PRIMARY KEY,
-            episode_guid TEXT NOT NULL UNIQUE,
-            podcast_id INTEGER NOT NULL,
-            audio_url TEXT NOT NULL,
-            cached_audio_url TEXT,
-            status TEXT NOT NULL,
-            error_message TEXT,
-            audio_duration INTEGER,
-            confidence REAL,
-            words_json TEXT,
-            paragraphs_json TEXT,
-            content_start_ms INTEGER DEFAULT 0,
-            content_end_ms INTEGER,
-            speaker_labels_json TEXT,
-            podcast_title TEXT,
-            podcast_description TEXT,
-            episode_title TEXT,
-            episode_description TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            completed_at TIMESTAMP
-        )
-    """)
-    conn.commit()
-    conn.close()
+def get_supabase() -> Client:
+    """Get the Supabase client (singleton)."""
+    global _supabase
+    if _supabase is None:
+        if not SUPABASE_URL or not SUPABASE_PRIVATE_KEY:
+            raise RuntimeError(
+                "SUPABASE_URL and SUPABASE_PRIVATE_KEY must be set in environment"
+            )
+        _supabase = create_client(SUPABASE_URL, SUPABASE_PRIVATE_KEY)
+    return _supabase
+
+
+# ============================================
+# TRANSCRIPTION FUNCTIONS
+# ============================================
 
 
 def get_transcription_by_episode(episode_guid: str) -> dict | None:
     """Get transcription by episode GUID."""
-    conn = get_connection()
-    row = conn.execute(
-        "SELECT * FROM transcriptions WHERE episode_guid = ?",
-        (episode_guid,),
-    ).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    supabase = get_supabase()
+    result = (
+        supabase.table("transcriptions")
+        .select("*")
+        .eq("episode_guid", episode_guid)
+        .maybe_single()
+        .execute()
+    )
+    return result.data
 
 
 def get_transcription_by_id(job_id: str) -> dict | None:
     """Get transcription by job ID."""
-    conn = get_connection()
-    row = conn.execute(
-        "SELECT * FROM transcriptions WHERE id = ?",
-        (job_id,),
-    ).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    supabase = get_supabase()
+    result = (
+        supabase.table("transcriptions")
+        .select("*")
+        .eq("id", job_id)
+        .maybe_single()
+        .execute()
+    )
+    return result.data
 
 
 def create_transcription(
@@ -83,22 +67,21 @@ def create_transcription(
     episode_description: str | None = None,
 ) -> None:
     """Create a new transcription job record."""
-    conn = get_connection()
-    conn.execute(
-        """
-        INSERT INTO transcriptions (
-            id, episode_guid, podcast_id, audio_url, cached_audio_url, status,
-            podcast_title, podcast_description, episode_title, episode_description
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            job_id, episode_guid, podcast_id, audio_url, cached_audio_url, status,
-            podcast_title, podcast_description, episode_title, episode_description,
-        ),
-    )
-    conn.commit()
-    conn.close()
+    supabase = get_supabase()
+    supabase.table("transcriptions").insert(
+        {
+            "id": job_id,
+            "episode_guid": episode_guid,
+            "podcast_id": podcast_id,
+            "audio_url": audio_url,
+            "cached_audio_url": cached_audio_url,
+            "status": status,
+            "podcast_title": podcast_title,
+            "podcast_description": podcast_description,
+            "episode_title": episode_title,
+            "episode_description": episode_description,
+        }
+    ).execute()
 
 
 def update_transcription_status(
@@ -107,17 +90,13 @@ def update_transcription_status(
     error_message: str | None = None,
 ) -> None:
     """Update transcription job status."""
-    conn = get_connection()
-    conn.execute(
-        """
-        UPDATE transcriptions
-        SET status = ?, error_message = ?
-        WHERE id = ?
-        """,
-        (status, error_message, job_id),
-    )
-    conn.commit()
-    conn.close()
+    supabase = get_supabase()
+    supabase.table("transcriptions").update(
+        {
+            "status": status,
+            "error_message": error_message,
+        }
+    ).eq("id", job_id).execute()
 
 
 def complete_transcription(
@@ -131,36 +110,149 @@ def complete_transcription(
     speaker_labels: dict[str, str] | None = None,
 ) -> None:
     """Mark transcription as completed and store results."""
-    conn = get_connection()
-    conn.execute(
-        """
-        UPDATE transcriptions
-        SET status = 'completed',
-            audio_duration = ?,
-            confidence = ?,
-            words_json = ?,
-            paragraphs_json = ?,
-            content_start_ms = ?,
-            content_end_ms = ?,
-            speaker_labels_json = ?,
-            completed_at = ?
-        WHERE id = ?
-        """,
-        (
-            audio_duration,
-            confidence,
-            json.dumps(words),
-            json.dumps(paragraphs) if paragraphs else None,
-            content_start_ms,
-            content_end_ms,
-            json.dumps(speaker_labels) if speaker_labels else None,
-            datetime.now(),
-            job_id,
-        ),
+    supabase = get_supabase()
+    supabase.table("transcriptions").update(
+        {
+            "status": "completed",
+            "audio_duration": audio_duration,
+            "confidence": confidence,
+            "words_json": words,  # Supabase handles JSONB natively
+            "paragraphs_json": paragraphs,
+            "content_start_ms": content_start_ms,
+            "content_end_ms": content_end_ms,
+            "speaker_labels_json": speaker_labels,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ).eq("id", job_id).execute()
+
+
+# ============================================
+# ANNOTATION FUNCTIONS
+# ============================================
+
+
+def get_annotations_for_episode(user_id: str, episode_guid: str) -> list[dict]:
+    """Get all annotations for a user on an episode."""
+    supabase = get_supabase()
+    result = (
+        supabase.table("annotations")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("episode_guid", episode_guid)
+        .order("start_ms")
+        .execute()
     )
-    conn.commit()
-    conn.close()
+    return result.data or []
 
 
-# Initialize database on module import
-init_db()
+def get_annotations_for_podcast(user_id: str, podcast_id: int) -> list[dict]:
+    """Get all annotations for a user on a podcast."""
+    supabase = get_supabase()
+    result = (
+        supabase.table("annotations")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("podcast_id", podcast_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return result.data or []
+
+
+def get_all_annotations_for_user(user_id: str) -> list[dict]:
+    """Get all annotations for a user."""
+    supabase = get_supabase()
+    result = (
+        supabase.table("annotations")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return result.data or []
+
+
+def create_annotation(
+    user_id: str,
+    podcast_id: int,
+    episode_guid: str,
+    text: str,
+    note: str,
+    start_ms: int,
+    speaker: str | None = None,
+) -> dict:
+    """Create a new annotation."""
+    supabase = get_supabase()
+    result = (
+        supabase.table("annotations")
+        .insert(
+            {
+                "user_id": user_id,
+                "podcast_id": podcast_id,
+                "episode_guid": episode_guid,
+                "text": text,
+                "note": note,
+                "speaker": speaker,
+                "start_ms": start_ms,
+            }
+        )
+        .execute()
+    )
+    return result.data[0] if result.data else {}
+
+
+def update_annotation(
+    annotation_id: str,
+    user_id: str,
+    note: str,
+) -> dict | None:
+    """Update an annotation's note (user_id for safety check)."""
+    supabase = get_supabase()
+    result = (
+        supabase.table("annotations")
+        .update({"note": note})
+        .eq("id", annotation_id)
+        .eq("user_id", user_id)  # Ensures user owns this annotation
+        .execute()
+    )
+    return result.data[0] if result.data else None
+
+
+def delete_annotation(annotation_id: str, user_id: str) -> bool:
+    """Delete an annotation (user_id for safety check)."""
+    supabase = get_supabase()
+    result = (
+        supabase.table("annotations")
+        .delete()
+        .eq("id", annotation_id)
+        .eq("user_id", user_id)  # Ensures user owns this annotation
+        .execute()
+    )
+    return len(result.data) > 0 if result.data else False
+
+
+def get_unsynced_annotations(user_id: str) -> list[dict]:
+    """Get annotations not yet synced to Readwise."""
+    supabase = get_supabase()
+    result = (
+        supabase.table("annotations")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("synced_to_readwise", False)
+        .order("created_at")
+        .execute()
+    )
+    return result.data or []
+
+
+def mark_annotations_synced(annotation_ids: list[str]) -> None:
+    """Mark annotations as synced to Readwise."""
+    if not annotation_ids:
+        return
+    supabase = get_supabase()
+    supabase.table("annotations").update(
+        {
+            "synced_to_readwise": True,
+            "last_synced_at": datetime.now(timezone.utc).isoformat(),
+        }
+    ).in_("id", annotation_ids).execute()

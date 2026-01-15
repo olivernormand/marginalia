@@ -111,14 +111,26 @@ export interface Transcript {
 
 export interface Annotation {
   id: string;
+  user_id: string;
+  podcast_id: number;
   episode_guid: string;
-  paragraph_start_ms: number;
-  char_start: number;
-  char_end: number;
-  selected_text: string;
-  note: string | null;
-  color: string;
+  text: string;
+  note: string;
+  speaker: string | null;
+  start_ms: number;
+  synced_to_readwise: boolean;
+  last_synced_at: string | null;
   created_at: string;
+  updated_at: string;
+}
+
+export interface AnnotationCreate {
+  podcast_id: number;
+  episode_guid: string;
+  text: string;
+  note: string;
+  speaker?: string | null;
+  start_ms: number;
 }
 
 // Helper to group words into utterances, split by paragraph boundaries

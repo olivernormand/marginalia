@@ -212,3 +212,40 @@ class TranscriptResponse(BaseModel):
                 end=end,
                 paragraphs=[" ".join(w.text for w in words)],
             )
+
+
+# --- Annotation models ---
+
+
+class AnnotationCreate(BaseModel):
+    """Request to create an annotation."""
+
+    podcast_id: int
+    episode_guid: str
+    text: str
+    note: str
+    speaker: str | None = None
+    start_ms: int
+
+
+class AnnotationUpdate(BaseModel):
+    """Request to update an annotation."""
+
+    note: str
+
+
+class AnnotationResponse(BaseModel):
+    """Response for a single annotation."""
+
+    id: str
+    user_id: str
+    podcast_id: int
+    episode_guid: str
+    text: str
+    note: str
+    speaker: str | None = None
+    start_ms: int
+    synced_to_readwise: bool = False
+    last_synced_at: datetime | None = None
+    created_at: datetime
+    updated_at: datetime

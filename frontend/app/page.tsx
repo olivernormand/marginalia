@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Search } from "lucide-react";
 import { PodcastSearchResult, TrendingPodcast } from "@/lib/types";
 import { API_BASE } from "@/lib/config";
 import Header from "@/components/Header";
 import SearchBar from "@/components/SearchBar";
 import PodcastCard from "@/components/PodcastCard";
+import { PodcastCardSkeleton, TrendingPodcastSkeleton } from "@/components/Skeleton";
 
 export default function Home() {
   const router = useRouter();
@@ -15,6 +16,7 @@ export default function Home() {
   const [results, setResults] = useState<PodcastSearchResult[]>([]);
   const [trendingPodcasts, setTrendingPodcasts] = useState<TrendingPodcast[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isTrendingLoading, setIsTrendingLoading] = useState(true);
   const [hasSearched, setHasSearched] = useState(false);
 
   // Fetch trending podcasts on mount
@@ -28,6 +30,8 @@ export default function Home() {
         }
       } catch (error) {
         console.error("Failed to fetch trending podcasts:", error);
+      } finally {
+        setIsTrendingLoading(false);
       }
     };
     fetchTrending();
@@ -69,18 +73,31 @@ export default function Home() {
           onSearch={handleSearch}
         />
 
+        {/* Search Results Loading */}
         {isLoading && (
-          <div className="text-center py-12 text-gray-500">Searching...</div>
-        )}
-
-        {!isLoading && hasSearched && results.length === 0 && (
-          <div className="text-center py-12 text-gray-500">
-            No podcasts found for &quot;{query}&quot;
+          <div className="space-y-2 animate-in fade-in duration-300">
+            {[...Array(3)].map((_, i) => (
+              <PodcastCardSkeleton key={i} />
+            ))}
           </div>
         )}
 
+        {/* No Results */}
+        {!isLoading && hasSearched && results.length === 0 && (
+          <div className="text-center py-16 animate-in fade-in duration-300">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">
+              <Search size={24} className="text-gray-400" />
+            </div>
+            <p className="text-gray-900 font-medium mb-1">No podcasts found</p>
+            <p className="text-gray-500 text-sm">
+              Try searching for something else
+            </p>
+          </div>
+        )}
+
+        {/* Search Results */}
         {!isLoading && results.length > 0 && (
-          <div className="space-y-6">
+          <div className="space-y-2 animate-in fade-in duration-300">
             {results.map((podcast, index) => (
               <PodcastCard
                 key={`${podcast.id}-${index}`}
@@ -92,44 +109,48 @@ export default function Home() {
         )}
 
         {/* Trending Podcasts - shown when not searching */}
-        {!hasSearched && trendingPodcasts.length > 0 && (
-          <div className="mt-8">
+        {!hasSearched && (
+          <div className="mt-8 animate-in fade-in duration-500">
             <h2 className="text-xl font-serif text-gray-900 mb-4">
               Trending Podcasts
             </h2>
-            <div className="space-y-3">
-              {trendingPodcasts.map((podcast) => (
-                <button
-                  key={podcast.id}
-                  onClick={() => handlePodcastClick(podcast)}
-                  className="w-full flex gap-4 p-4 hover:bg-gray-50 transition-colors rounded-lg text-left group"
-                >
-                  {podcast.artwork && (
-                    <img
-                      src={podcast.artwork}
-                      alt=""
-                      className="w-16 h-16 rounded-md object-cover flex-shrink-0"
+            <div className="space-y-1">
+              {isTrendingLoading ? (
+                [...Array(5)].map((_, i) => <TrendingPodcastSkeleton key={i} />)
+              ) : (
+                trendingPodcasts.map((podcast) => (
+                  <button
+                    key={podcast.id}
+                    onClick={() => handlePodcastClick(podcast)}
+                    className="w-full flex gap-4 p-4 hover:bg-gray-50 transition-all duration-200 rounded-lg text-left group"
+                  >
+                    {podcast.artwork && (
+                      <img
+                        src={podcast.artwork}
+                        alt=""
+                        className="w-16 h-16 rounded-md object-cover flex-shrink-0 shadow-sm group-hover:shadow-md transition-shadow duration-200"
+                      />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-medium text-gray-900 group-hover:text-gray-700 line-clamp-1">
+                        {podcast.title}
+                      </h3>
+                      {podcast.author && (
+                        <p className="text-sm text-gray-500">{podcast.author}</p>
+                      )}
+                      {podcast.categories && (
+                        <p className="text-xs text-gray-400 mt-1">
+                          {Object.values(podcast.categories).slice(0, 2).join(" · ")}
+                        </p>
+                      )}
+                    </div>
+                    <ChevronRight
+                      size={20}
+                      className="text-gray-300 group-hover:text-gray-500 flex-shrink-0 self-center transition-colors duration-200"
                     />
-                  )}
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-medium text-gray-900 group-hover:text-gray-700 line-clamp-1">
-                      {podcast.title}
-                    </h3>
-                    {podcast.author && (
-                      <p className="text-sm text-gray-500">{podcast.author}</p>
-                    )}
-                    {podcast.categories && (
-                      <p className="text-xs text-gray-400 mt-1">
-                        {Object.values(podcast.categories).slice(0, 2).join(" · ")}
-                      </p>
-                    )}
-                  </div>
-                  <ChevronRight
-                    size={20}
-                    className="text-gray-300 group-hover:text-gray-500 flex-shrink-0 self-center"
-                  />
-                </button>
-              ))}
+                  </button>
+                ))
+              )}
             </div>
           </div>
         )}

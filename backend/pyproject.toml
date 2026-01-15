@@ -18,6 +18,7 @@ dependencies = [
     "anthropic>=0.75.0",
     "boto3>=1.42.27",
     "PyJWT[crypto]>=2.8.0",
+    "supabase>=2.0.0",
 ]
 
 [project.scripts]

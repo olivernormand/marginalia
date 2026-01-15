@@ -17,6 +17,9 @@ from backend import database as db
 from backend import storage
 from backend.auth import get_current_user, get_optional_user
 from backend.models.schemas import (
+    AnnotationCreate,
+    AnnotationResponse,
+    AnnotationUpdate,
     PodcastEpisodeResponse,
     PodcastFeedResponse,
     PodcastInfoResponse,
@@ -584,8 +587,6 @@ async def poll_transcription(job_id: str) -> TranscriptionJobResponse:
 @app.get("/transcript/{episode_guid}")
 async def get_transcript(episode_guid: str) -> TranscriptResponse:
     """Get completed transcript for an episode."""
-    import json
-
     existing = db.get_transcription_by_episode(episode_guid)
     if not existing:
         raise HTTPException(status_code=404, detail="Transcript not found")
@@ -596,19 +597,12 @@ async def get_transcript(episode_guid: str) -> TranscriptResponse:
             detail=f"Transcript not ready (status: {existing['status']})",
         )
 
-    words_data = json.loads(existing["words_json"])
-    paragraphs_data = (
-        json.loads(existing["paragraphs_json"])
-        if existing.get("paragraphs_json")
-        else None
-    )
+    # Supabase returns JSONB as Python dicts/lists directly
+    words_data = existing.get("words_json") or []
+    paragraphs_data = existing.get("paragraphs_json")
     content_start_ms = existing.get("content_start_ms") or 0
     content_end_ms = existing.get("content_end_ms")
-    speaker_labels = (
-        json.loads(existing["speaker_labels_json"])
-        if existing.get("speaker_labels_json")
-        else None
-    )
+    speaker_labels = existing.get("speaker_labels_json")
 
     # Filter words to content bounds
     filtered_words = [
@@ -658,6 +652,95 @@ async def get_transcript(episode_guid: str) -> TranscriptResponse:
             for w in filtered_words
         ],
     )
+
+
+# --- Annotation endpoints ---
+
+
+@app.get("/annotations")
+async def get_annotations(
+    user: dict = Depends(get_current_user),
+    episode_guid: str | None = Query(None),
+    podcast_id: int | None = Query(None),
+) -> list[AnnotationResponse]:
+    """Get annotations for the current user.
+
+    Can optionally filter by episode_guid or podcast_id.
+    """
+    user_id = user.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid user")
+
+    if episode_guid:
+        data = db.get_annotations_for_episode(user_id, episode_guid)
+    elif podcast_id:
+        data = db.get_annotations_for_podcast(user_id, podcast_id)
+    else:
+        data = db.get_all_annotations_for_user(user_id)
+
+    return [AnnotationResponse(**item) for item in data]
+
+
+@app.post("/annotations", status_code=201)
+async def create_annotation(
+    request: AnnotationCreate,
+    user: dict = Depends(get_current_user),
+) -> AnnotationResponse:
+    """Create a new annotation."""
+    user_id = user.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid user")
+
+    data = db.create_annotation(
+        user_id=user_id,
+        podcast_id=request.podcast_id,
+        episode_guid=request.episode_guid,
+        text=request.text,
+        note=request.note,
+        speaker=request.speaker,
+        start_ms=request.start_ms,
+    )
+
+    return AnnotationResponse(**data)
+
+
+@app.patch("/annotations/{annotation_id}")
+async def update_annotation(
+    annotation_id: str,
+    request: AnnotationUpdate,
+    user: dict = Depends(get_current_user),
+) -> AnnotationResponse:
+    """Update an annotation's note."""
+    user_id = user.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid user")
+
+    data = db.update_annotation(
+        annotation_id=annotation_id,
+        user_id=user_id,
+        note=request.note,
+    )
+
+    if not data:
+        raise HTTPException(status_code=404, detail="Annotation not found")
+
+    return AnnotationResponse(**data)
+
+
+@app.delete("/annotations/{annotation_id}", status_code=204)
+async def delete_annotation(
+    annotation_id: str,
+    user: dict = Depends(get_current_user),
+) -> None:
+    """Delete an annotation."""
+    user_id = user.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid user")
+
+    deleted = db.delete_annotation(annotation_id=annotation_id, user_id=user_id)
+
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Annotation not found")
 
 
 def main() -> None:
