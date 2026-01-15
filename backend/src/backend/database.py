@@ -35,10 +35,12 @@ def get_transcription_by_episode(episode_guid: str) -> dict | None:
         supabase.table("transcriptions")
         .select("*")
         .eq("episode_guid", episode_guid)
-        .maybe_single()
+        .limit(1)
         .execute()
     )
-    return result.data
+    if result and result.data:
+        return result.data[0]
+    return None
 
 
 def get_transcription_by_id(job_id: str) -> dict | None:
@@ -48,10 +50,12 @@ def get_transcription_by_id(job_id: str) -> dict | None:
         supabase.table("transcriptions")
         .select("*")
         .eq("id", job_id)
-        .maybe_single()
+        .limit(1)
         .execute()
     )
-    return result.data
+    if result and result.data:
+        return result.data[0]
+    return None
 
 
 def create_transcription(
@@ -283,22 +287,20 @@ def get_subscriptions(user_id: str) -> list[dict]:
 def get_subscription(user_id: str, podcast_id: int) -> dict | None:
     """Check if user is subscribed to a podcast."""
     supabase = get_supabase()
-    try:
-        result = (
-            supabase.table("subscriptions")
-            .select("*")
-            .eq("user_id", user_id)
-            .eq("podcast_id", podcast_id)
-            .maybe_single()
-            .execute()
-        )
-        return result.data if result else None
-    except Exception as e:
-        print(f"Error checking subscription: {e}")
-        return None
+    result = (
+        supabase.table("subscriptions")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("podcast_id", podcast_id)
+        .limit(1)
+        .execute()
+    )
+    if result and result.data:
+        return result.data[0]
+    return None
 
 
-def create_subscription(
+def upsert_subscription(
     user_id: str,
     podcast_id: int,
     podcast_title: str,
@@ -306,11 +308,11 @@ def create_subscription(
     podcast_author: str | None = None,
     artwork_url: str | None = None,
 ) -> dict:
-    """Subscribe to a podcast."""
+    """Subscribe to a podcast (upsert - insert or return existing)."""
     supabase = get_supabase()
     result = (
         supabase.table("subscriptions")
-        .insert(
+        .upsert(
             {
                 "user_id": user_id,
                 "podcast_id": podcast_id,
@@ -318,7 +320,8 @@ def create_subscription(
                 "podcast_author": podcast_author,
                 "artwork_url": artwork_url,
                 "feed_url": feed_url,
-            }
+            },
+            on_conflict="user_id,podcast_id",
         )
         .execute()
     )
@@ -359,22 +362,20 @@ def get_saved_episodes(user_id: str) -> list[dict]:
 def get_saved_episode(user_id: str, episode_guid: str) -> dict | None:
     """Check if user has saved an episode."""
     supabase = get_supabase()
-    try:
-        result = (
-            supabase.table("saved_episodes")
-            .select("*")
-            .eq("user_id", user_id)
-            .eq("episode_guid", episode_guid)
-            .maybe_single()
-            .execute()
-        )
-        return result.data if result else None
-    except Exception as e:
-        print(f"Error checking saved episode: {e}")
-        return None
+    result = (
+        supabase.table("saved_episodes")
+        .select("*")
+        .eq("user_id", user_id)
+        .eq("episode_guid", episode_guid)
+        .limit(1)
+        .execute()
+    )
+    if result and result.data:
+        return result.data[0]
+    return None
 
 
-def create_saved_episode(
+def upsert_saved_episode(
     user_id: str,
     podcast_id: int,
     episode_guid: str,
@@ -385,11 +386,11 @@ def create_saved_episode(
     pub_date: str | None = None,
     duration_seconds: int | None = None,
 ) -> dict:
-    """Save an episode."""
+    """Save an episode (upsert - insert or return existing)."""
     supabase = get_supabase()
     result = (
         supabase.table("saved_episodes")
-        .insert(
+        .upsert(
             {
                 "user_id": user_id,
                 "podcast_id": podcast_id,
@@ -400,7 +401,8 @@ def create_saved_episode(
                 "audio_url": audio_url,
                 "pub_date": pub_date,
                 "duration_seconds": duration_seconds,
-            }
+            },
+            on_conflict="user_id,episode_guid",
         )
         .execute()
     )

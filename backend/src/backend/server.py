@@ -519,14 +519,24 @@ async def poll_transcription(job_id: str) -> TranscriptionJobResponse:
             error_message=existing["error_message"],
         )
 
-    # Poll AssemblyAI
+    # Poll AssemblyAI with generous timeout and retry
     headers = {"authorization": ASSEMBLYAI_API_KEY}
+    timeout = httpx.Timeout(30.0, connect=10.0)  # 30s read, 10s connect
 
-    async with httpx.AsyncClient() as client:
-        response = await client.get(
-            f"{ASSEMBLYAI_BASE_URL}/transcript/{job_id}",
-            headers=headers,
-        )
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        try:
+            response = await client.get(
+                f"{ASSEMBLYAI_BASE_URL}/transcript/{job_id}",
+                headers=headers,
+            )
+        except httpx.TimeoutException:
+            # Return current status from DB on timeout - don't crash
+            return TranscriptionJobResponse(
+                id=existing["id"],
+                episode_guid=existing["episode_guid"],
+                status=existing["status"],
+                error_message=None,
+            )
 
         if response.status_code != 200:
             raise HTTPException(
@@ -542,12 +552,15 @@ async def poll_transcription(job_id: str) -> TranscriptionJobResponse:
     if status == "completed":
         # Fetch paragraphs from AssemblyAI
         paragraphs = None
-        async with httpx.AsyncClient() as client:
-            para_response = await client.get(
-                f"{ASSEMBLYAI_BASE_URL}/transcript/{job_id}/paragraphs",
-                headers=headers,
-            )
-            if para_response.status_code == 200:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            try:
+                para_response = await client.get(
+                    f"{ASSEMBLYAI_BASE_URL}/transcript/{job_id}/paragraphs",
+                    headers=headers,
+                )
+            except httpx.TimeoutException:
+                para_response = None
+            if para_response and para_response.status_code == 200:
                 para_data = para_response.json()
                 # Store just start, end, text for each paragraph
                 paragraphs = [
@@ -793,12 +806,7 @@ async def create_subscription(
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid user")
 
-    # Check if already subscribed
-    existing = db.get_subscription(user_id, request.podcast_id)
-    if existing:
-        return SubscriptionResponse(**existing)
-
-    data = db.create_subscription(
+    data = db.upsert_subscription(
         user_id=user_id,
         podcast_id=request.podcast_id,
         podcast_title=request.podcast_title,
@@ -867,12 +875,7 @@ async def create_saved_episode(
     if not user_id:
         raise HTTPException(status_code=401, detail="Invalid user")
 
-    # Check if already saved
-    existing = db.get_saved_episode(user_id, request.episode_guid)
-    if existing:
-        return SavedEpisodeResponse(**existing)
-
-    data = db.create_saved_episode(
+    data = db.upsert_saved_episode(
         user_id=user_id,
         podcast_id=request.podcast_id,
         episode_guid=request.episode_guid,
