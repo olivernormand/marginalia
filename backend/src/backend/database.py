@@ -26,6 +26,7 @@ def init_db() -> None:
             episode_guid TEXT NOT NULL UNIQUE,
             podcast_id INTEGER NOT NULL,
             audio_url TEXT NOT NULL,
+            cached_audio_url TEXT,
             status TEXT NOT NULL,
             error_message TEXT,
             audio_duration INTEGER,
@@ -75,6 +76,7 @@ def create_transcription(
     podcast_id: int,
     audio_url: str,
     status: str,
+    cached_audio_url: str | None = None,
     podcast_title: str | None = None,
     podcast_description: str | None = None,
     episode_title: str | None = None,
@@ -85,13 +87,13 @@ def create_transcription(
     conn.execute(
         """
         INSERT INTO transcriptions (
-            id, episode_guid, podcast_id, audio_url, status,
+            id, episode_guid, podcast_id, audio_url, cached_audio_url, status,
             podcast_title, podcast_description, episode_title, episode_description
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
-            job_id, episode_guid, podcast_id, audio_url, status,
+            job_id, episode_guid, podcast_id, audio_url, cached_audio_url, status,
             podcast_title, podcast_description, episode_title, episode_description,
         ),
     )

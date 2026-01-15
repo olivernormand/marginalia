@@ -139,6 +139,7 @@ class TranscriptResponse(BaseModel):
     id: str
     episode_guid: str
     audio_url: str
+    cached_audio_url: str | None = None  # R2 cached URL for reliable timestamp sync
     audio_duration: int  # milliseconds
     confidence: float
     words: list[TranscriptWord]

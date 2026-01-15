@@ -395,9 +395,10 @@ function EpisodeContent() {
       )}
 
       {/* Audio player */}
+      {/* Use cached audio URL for transcribed episodes (ensures timestamp sync) */}
       {episode.audio_url && (
         <AudioPlayer
-          audioUrl={episode.audio_url}
+          audioUrl={transcript?.cached_audio_url || episode.audio_url}
           episodeTitle={episode.title}
           podcastTitle={podcastTitle || undefined}
           onTimeUpdate={setCurrentTime}

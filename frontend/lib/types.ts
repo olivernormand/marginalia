@@ -97,6 +97,7 @@ export interface Transcript {
   id: string;
   episode_guid: string;
   audio_url: string;
+  cached_audio_url: string | null; // R2 cached URL for reliable timestamp sync
   audio_duration: number; // milliseconds
   confidence: number;
   words: TranscriptWord[];

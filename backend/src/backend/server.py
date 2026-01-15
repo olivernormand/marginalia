@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
 from backend import database as db
+from backend import storage
 from backend.models.schemas import (
     PodcastEpisodeResponse,
     PodcastFeedResponse,
@@ -414,7 +415,24 @@ async def submit_transcription(request: TranscribeRequest) -> TranscriptionJobRe
             error_message=existing["error_message"],
         )
 
-    # Submit to AssemblyAI
+    # Step 1: Download audio and upload to R2 for caching
+    # This ensures timestamps match between transcription and playback
+    try:
+        print(f"Downloading and caching audio for {request.episode_guid}...")
+        cached_audio_url = await storage.download_and_upload_audio(
+            audio_url=request.audio_url,
+            podcast_id=request.podcast_id,
+            episode_guid=request.episode_guid,
+        )
+        print(f"Audio cached at: {cached_audio_url}")
+    except Exception as e:
+        print(f"Failed to cache audio: {e}")
+        # Fall back to original URL if caching fails
+        cached_audio_url = None
+
+    # Step 2: Submit to AssemblyAI (use cached URL if available)
+    transcribe_url = cached_audio_url or request.audio_url
+
     headers = {
         "authorization": ASSEMBLYAI_API_KEY,
         "content-type": "application/json",
@@ -425,7 +443,7 @@ async def submit_transcription(request: TranscribeRequest) -> TranscriptionJobRe
             f"{ASSEMBLYAI_BASE_URL}/transcript",
             headers=headers,
             json={
-                "audio_url": request.audio_url,
+                "audio_url": transcribe_url,
                 "speaker_labels": True,
             },
         )
@@ -444,6 +462,7 @@ async def submit_transcription(request: TranscribeRequest) -> TranscriptionJobRe
         episode_guid=request.episode_guid,
         podcast_id=request.podcast_id,
         audio_url=request.audio_url,
+        cached_audio_url=cached_audio_url,
         status=job["status"],
         podcast_title=request.podcast_title,
         podcast_description=request.podcast_description,
@@ -610,6 +629,7 @@ async def get_transcript(episode_guid: str) -> TranscriptResponse:
         id=existing["id"],
         episode_guid=existing["episode_guid"],
         audio_url=existing["audio_url"],
+        cached_audio_url=existing.get("cached_audio_url"),
         audio_duration=existing["audio_duration"],
         confidence=existing["confidence"],
         content_start_ms=content_start_ms,
