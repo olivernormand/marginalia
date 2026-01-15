@@ -22,6 +22,7 @@ interface AudioPlayerProps {
   onJumpToTranscript?: () => void; // Scroll transcript to current position
   isFollowingTranscript?: boolean; // Whether auto-scroll is active
   seekTo?: number | null; // When set, seeks to this time in seconds
+  externalIsPlaying?: boolean; // When set, controls play/pause from parent
 }
 
 const PLAYBACK_SPEEDS = [0.5, 1, 1.25, 1.5, 2];
@@ -36,6 +37,7 @@ export default function AudioPlayer({
   onJumpToTranscript,
   isFollowingTranscript,
   seekTo,
+  externalIsPlaying,
 }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -101,6 +103,18 @@ export default function AudioPlayer({
       setCurrentTime(seekTo);
     }
   }, [seekTo]);
+
+  // Handle external play/pause control
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || externalIsPlaying === undefined) return;
+
+    if (externalIsPlaying && audio.paused) {
+      audio.play().catch(() => {});
+    } else if (!externalIsPlaying && !audio.paused) {
+      audio.pause();
+    }
+  }, [externalIsPlaying]);
 
   // Auto-play when a new episode is selected
   useEffect(() => {

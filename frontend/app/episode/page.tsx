@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Loader2, FileText, AlertCircle, Bookmark } from "lucide-react";
+import { ArrowLeft, Loader2, FileText, AlertCircle, Bookmark, Play, Pause } from "lucide-react";
 import Link from "next/link";
 import {
   PodcastEpisode,
@@ -13,11 +13,11 @@ import {
 } from "@/lib/types";
 import { API_BASE } from "@/lib/config";
 import { BookmarkPlus } from "lucide-react";
-import AudioPlayer from "@/components/AudioPlayer";
 import TranscriptView, { SavedAnnotation } from "@/components/Transcript";
 import AnnotationSidebar from "@/components/AnnotationSidebar";
 import { EpisodeHeaderSkeleton, TranscriptSkeleton } from "@/components/Skeleton";
 import { useAuth } from "@/context/AuthContext";
+import { useAudioPlayer } from "@/context/AudioPlayerContext";
 import * as api from "@/lib/api";
 
 const POLL_INTERVAL = 3000; // 3 seconds
@@ -25,6 +25,16 @@ const POLL_INTERVAL = 3000; // 3 seconds
 function EpisodeContent() {
   const searchParams = useSearchParams();
   const { session } = useAuth();
+  const {
+    nowPlaying,
+    isPlaying,
+    currentTime,
+    playEpisode,
+    pause,
+    resume,
+    seekTo,
+    transcriptJumpRequested,
+  } = useAudioPlayer();
 
   // Get episode by podcast ID + guid
   const podcastId = searchParams.get("id");
@@ -41,10 +51,6 @@ function EpisodeContent() {
     useState<TranscriptionJob | null>(null);
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcriptError, setTranscriptError] = useState<string | null>(null);
-
-  // Audio sync state
-  const [currentTime, setCurrentTime] = useState(0);
-  const [seekToTime, setSeekToTime] = useState<number | null>(null);
 
   // Annotation state
   const [annotations, setAnnotations] = useState<SavedAnnotation[]>([]);
@@ -131,6 +137,31 @@ function EpisodeContent() {
       console.error("Failed to toggle saved episode:", err);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const handlePlayPause = () => {
+    if (!episode?.audio_url || !podcastId || !guid) return;
+
+    const isThisEpisodePlaying = nowPlaying?.episodeGuid === guid;
+
+    if (isThisEpisodePlaying) {
+      // This episode is already in the player - toggle play/pause
+      if (isPlaying) {
+        pause();
+      } else {
+        resume();
+      }
+    } else {
+      // Start playing this episode
+      playEpisode({
+        audioUrl: transcript?.cached_audio_url || episode.audio_url,
+        episodeTitle: episode.title,
+        podcastTitle: podcastInfo?.title || undefined,
+        episodeGuid: guid,
+        podcastId: parseInt(podcastId),
+        artworkUrl: episode.artwork_url || podcastInfo?.artwork || undefined,
+      });
     }
   };
 
@@ -288,10 +319,8 @@ function EpisodeContent() {
   };
 
   const handleSeek = useCallback((timeMs: number) => {
-    setSeekToTime(timeMs / 1000); // Convert to seconds
-    // Reset after a tick to allow re-seeking to same time
-    setTimeout(() => setSeekToTime(null), 100);
-  }, []);
+    seekTo(timeMs / 1000); // Convert to seconds
+  }, [seekTo]);
 
   const handleSaveAnnotation = useCallback(
     async (text: string, note: string, speaker: string | null, startMs: number) => {
@@ -412,6 +441,19 @@ function EpisodeContent() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, [isFollowMode]);
 
+  // Check if the currently playing episode is THIS episode (for transcript sync)
+  const isCurrentlyPlayingThisEpisode = nowPlaying?.episodeGuid === guid;
+
+  // Only use currentTime for transcript sync if this episode is playing
+  const transcriptCurrentTime = isCurrentlyPlayingThisEpisode ? currentTime : 0;
+
+  // Watch for transcript jump requests from GlobalAudioPlayer
+  useEffect(() => {
+    if (transcriptJumpRequested > 0 && isCurrentlyPlayingThisEpisode) {
+      scrollToActive(true);
+    }
+  }, [transcriptJumpRequested, isCurrentlyPlayingThisEpisode, scrollToActive]);
+
   if (isLoading) {
     return (
       <div className="animate-in fade-in duration-300">
@@ -463,7 +505,7 @@ function EpisodeContent() {
         <span>Back to {podcastTitle || "podcast"}</span>
       </Link>
 
-      <div className={`${episode.audio_url ? "pb-24" : ""}`}>
+      <div className={`${nowPlaying ? "pb-24" : ""}`}>
         {/* Episode header */}
         <div className="flex gap-6 mb-8">
           {artworkUrl && (
@@ -499,20 +541,40 @@ function EpisodeContent() {
                 </>
               )}
             </div>
-            {session && (
-              <button
-                onClick={handleSaveToggle}
-                disabled={isSaving}
-                className={`mt-4 flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  isSaved
-                    ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                    : "bg-gray-900 text-white hover:bg-gray-800"
-                } disabled:opacity-50`}
-              >
-                <Bookmark size={16} className={isSaved ? "fill-current" : ""} />
-                {isSaved ? "Saved" : "Save Episode"}
-              </button>
-            )}
+            <div className="flex items-center gap-3 mt-4">
+              {episode.audio_url && (
+                <button
+                  onClick={handlePlayPause}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-gray-900 text-white hover:bg-gray-800 transition-colors"
+                >
+                  {isCurrentlyPlayingThisEpisode && isPlaying ? (
+                    <>
+                      <Pause size={16} />
+                      Pause
+                    </>
+                  ) : (
+                    <>
+                      <Play size={16} className="ml-0.5" />
+                      Play
+                    </>
+                  )}
+                </button>
+              )}
+              {session && (
+                <button
+                  onClick={handleSaveToggle}
+                  disabled={isSaving}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    isSaved
+                      ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                      : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  } disabled:opacity-50`}
+                >
+                  <Bookmark size={16} className={isSaved ? "fill-current" : ""} />
+                  {isSaved ? "Saved" : "Save"}
+                </button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -556,7 +618,7 @@ function EpisodeContent() {
             <div ref={transcriptRef} className="animate-in fade-in duration-300">
               <TranscriptView
                 transcript={transcript}
-                currentTime={currentTime}
+                currentTime={transcriptCurrentTime}
                 onSeek={handleSeek}
                 annotations={annotations}
                 onSaveAnnotation={handleSaveAnnotation}
@@ -629,20 +691,6 @@ function EpisodeContent() {
           onSeek={handleSeek}
           onEdit={handleEditAnnotation}
           onDelete={handleDeleteAnnotation}
-        />
-      )}
-
-      {/* Audio player */}
-      {/* Use cached audio URL for transcribed episodes (ensures timestamp sync) */}
-      {episode.audio_url && (
-        <AudioPlayer
-          audioUrl={transcript?.cached_audio_url || episode.audio_url}
-          episodeTitle={episode.title}
-          podcastTitle={podcastTitle || undefined}
-          onTimeUpdate={setCurrentTime}
-          onJumpToTranscript={transcript ? handleJumpToTranscript : undefined}
-          isFollowingTranscript={isFollowMode}
-          seekTo={seekToTime}
         />
       )}
     </>

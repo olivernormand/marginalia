@@ -7,9 +7,9 @@ import Link from "next/link";
 import { PodcastFeed, PodcastEpisode, PodcastInfo } from "@/lib/types";
 import { API_BASE } from "@/lib/config";
 import { useAuth } from "@/context/AuthContext";
+import { useAudioPlayer } from "@/context/AudioPlayerContext";
 import * as api from "@/lib/api";
 import EpisodeCard from "@/components/EpisodeCard";
-import AudioPlayer from "@/components/AudioPlayer";
 import { Skeleton, EpisodeCardSkeleton } from "@/components/Skeleton";
 const EPISODES_PER_BATCH = 20;
 
@@ -17,14 +17,13 @@ function PodcastContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { session } = useAuth();
+  const { nowPlaying, isPlaying, playEpisode, pause } = useAudioPlayer();
   const podcastId = searchParams.get("id");
 
   const [podcastInfo, setPodcastInfo] = useState<PodcastInfo | null>(null);
   const [feed, setFeed] = useState<PodcastFeed | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [currentEpisode, setCurrentEpisode] = useState<PodcastEpisode | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
   const [visibleCount, setVisibleCount] = useState(EPISODES_PER_BATCH);
   const [episodeSearch, setEpisodeSearch] = useState("");
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -213,21 +212,24 @@ function PodcastContent() {
   }, [feed, visibleCount, filteredEpisodes.length]);
 
   const handleEpisodePlay = (episode: PodcastEpisode) => {
-    if (currentEpisode?.guid === episode.guid && isPlaying) {
-      setIsPlaying(false);
+    const isCurrentEpisode = nowPlaying?.episodeGuid === episode.guid;
+
+    if (isCurrentEpisode && isPlaying) {
+      pause();
     } else {
-      setCurrentEpisode(episode);
-      setIsPlaying(true);
+      playEpisode({
+        audioUrl: episode.audio_url || "",
+        episodeTitle: episode.title,
+        podcastTitle: feed?.title || podcastInfo?.title || undefined,
+        episodeGuid: episode.guid || undefined,
+        podcastId: podcastId ? parseInt(podcastId) : undefined,
+        artworkUrl: episode.artwork_url || feed?.artwork_url || podcastInfo?.artwork || undefined,
+      });
     }
   };
 
   const handleEpisodeClick = (episode: PodcastEpisode) => {
     router.push(`/episode?id=${podcastId}&guid=${encodeURIComponent(episode.guid || "")}`);
-  };
-
-  const handlePlayerClose = () => {
-    setCurrentEpisode(null);
-    setIsPlaying(false);
   };
 
   return (
@@ -365,14 +367,14 @@ function PodcastContent() {
                 </p>
               </div>
             ) : (
-              <div className={`space-y-2 ${currentEpisode ? "pb-24" : ""}`}>
+              <div className={`space-y-2 ${nowPlaying ? "pb-24" : ""}`}>
                 {filteredEpisodes.slice(0, visibleCount).map((episode, index) => (
                   <EpisodeCard
                     key={episode.guid || index}
                     episode={episode}
                     index={index}
                     isPlaying={isPlaying}
-                    isCurrentEpisode={currentEpisode?.guid === episode.guid}
+                    isCurrentEpisode={nowPlaying?.episodeGuid === episode.guid}
                     onPlay={handleEpisodePlay}
                     onEpisodeClick={handleEpisodeClick}
                     podcastArtwork={feed.artwork_url || podcastInfo.artwork}
@@ -393,16 +395,6 @@ function PodcastContent() {
             )}
           </div>
         </div>
-      )}
-
-      {currentEpisode && currentEpisode.audio_url && (
-        <AudioPlayer
-          audioUrl={currentEpisode.audio_url}
-          episodeTitle={currentEpisode.title}
-          podcastTitle={feed?.title}
-          onClose={handlePlayerClose}
-          onPlayingChange={setIsPlaying}
-        />
       )}
     </>
   );

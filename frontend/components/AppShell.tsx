@@ -26,6 +26,8 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/context/AuthContext";
+import { AudioPlayerProvider } from "@/context/AudioPlayerContext";
+import GlobalAudioPlayer from "@/components/GlobalAudioPlayer";
 
 const navItems = [
   { title: "Home", href: "/", icon: Home },
@@ -145,11 +147,16 @@ interface AppShellProps {
 
 export default function AppShell({ children }: AppShellProps) {
   return (
-    <SidebarProvider>
-      <AppSidebar />
-      <SidebarInset>
-        <div className="flex-1">{children}</div>
-      </SidebarInset>
-    </SidebarProvider>
+    <AudioPlayerProvider>
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          <div className="flex-1 flex flex-col min-h-screen">
+            <div className="flex-1">{children}</div>
+            <GlobalAudioPlayer />
+          </div>
+        </SidebarInset>
+      </SidebarProvider>
+    </AudioPlayerProvider>
   );
 }
