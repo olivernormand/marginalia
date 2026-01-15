@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect } from "react";
 import { X } from "lucide-react";
 import { SavedAnnotation } from "./Transcript";
+import { formatTimeMs } from "@/lib/formatters";
 
 interface AnnotationSidebarProps {
   annotations: SavedAnnotation[];
@@ -10,13 +11,6 @@ interface AnnotationSidebarProps {
   onSeek: (timeMs: number) => void;
   onEdit: (id: string, note: string) => void;
   onDelete: (id: string) => void;
-}
-
-function formatTime(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  const mins = Math.floor(totalSeconds / 60);
-  const secs = totalSeconds % 60;
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
 }
 
 interface SidebarNoteProps {
@@ -66,7 +60,7 @@ function SidebarNote({ annotation, onSeek, onEdit, onDelete }: SidebarNoteProps)
     >
       <div className="flex items-start justify-between mb-2">
         <span className="text-xs text-gray-500 font-mono">
-          {formatTime(annotation.startMs)}
+          {formatTimeMs(annotation.startMs)}
           {annotation.speaker && ` · ${annotation.speaker}`}
         </span>
         <button

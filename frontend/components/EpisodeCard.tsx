@@ -1,5 +1,6 @@
-import { Play, Pause, Bookmark } from "lucide-react";
+import { Play, Pause, Bookmark, ChevronRight } from "lucide-react";
 import { PodcastEpisode } from "@/lib/types";
+import { formatDuration, formatDate, stripHtml } from "@/lib/formatters";
 
 interface EpisodeCardProps {
   episode: PodcastEpisode;
@@ -11,45 +12,9 @@ interface EpisodeCardProps {
   podcastArtwork?: string | null;
   isSaved?: boolean;
   onSaveToggle?: (episode: PodcastEpisode) => void;
-}
-
-function formatDuration(seconds: number | null): string {
-  if (!seconds) return "";
-  const hours = Math.floor(seconds / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
-  return `${minutes} min`;
-}
-
-function formatDate(dateString: string | null): string {
-  if (!dateString) return "";
-  const date = new Date(dateString);
-  return date.toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
-function stripHtml(html: string | null): string {
-  if (!html) return "";
-  // Remove HTML tags
-  let text = html.replace(/<[^>]*>/g, " ");
-  // Decode common HTML entities
-  text = text
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&#8212;/g, "—")
-    .replace(/&#8211;/g, "–");
-  // Collapse whitespace and trim
-  text = text.replace(/\s+/g, " ").trim();
-  return text.slice(0, 300);
+  // Additional props for library/transcribed page compatibility
+  subtitle?: string | null; // e.g., podcast name
+  showChevron?: boolean; // Show navigation chevron instead of play/save buttons
 }
 
 export default function EpisodeCard({
@@ -62,6 +27,8 @@ export default function EpisodeCard({
   podcastArtwork,
   isSaved = false,
   onSaveToggle,
+  subtitle,
+  showChevron = false,
 }: EpisodeCardProps) {
   const handlePlayClick = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -105,18 +72,21 @@ export default function EpisodeCard({
       )}
       <div className="flex-1 min-w-0">
         <h3
-          className={`text-lg font-serif mb-1 group-hover:text-gray-700 ${
+          className={`text-lg font-serif mb-1 group-hover:text-gray-700 line-clamp-1 ${
             isCurrentEpisode ? "text-gray-900 font-medium" : "text-gray-900"
           }`}
         >
           {episode.title}
         </h3>
+        {subtitle && (
+          <p className="text-sm text-gray-500 line-clamp-1">{subtitle}</p>
+        )}
         {episode.description && (
           <p className="text-sm text-gray-500 mb-2 line-clamp-3">
             {stripHtml(episode.description)}
           </p>
         )}
-        <div className="flex items-center gap-4 text-xs text-gray-400">
+        <div className={`flex items-center gap-4 text-xs text-gray-400 ${subtitle ? "mt-1" : ""}`}>
           {episode.pub_date && <span>{formatDate(episode.pub_date)}</span>}
           {episode.duration_seconds && (
             <>
@@ -127,35 +97,44 @@ export default function EpisodeCard({
         </div>
       </div>
       <div className="flex items-center gap-2 flex-shrink-0">
-        {onSaveToggle && (
-          <button
-            className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
-              isSaved
-                ? "bg-gray-900 text-white"
-                : "bg-gray-100 group-hover:bg-gray-200 text-gray-600"
-            }`}
-            title={isSaved ? "Remove from library" : "Save to library"}
-            onClick={handleSaveClick}
-          >
-            <Bookmark size={16} className={isSaved ? "fill-current" : ""} />
-          </button>
-        )}
-        {episode.audio_url && (
-          <button
-            className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
-              isCurrentEpisode && isPlaying
-                ? "bg-gray-900 text-white"
-                : "bg-gray-100 group-hover:bg-gray-200 text-gray-600"
-            }`}
-            title={isPlaying && isCurrentEpisode ? "Pause episode" : "Play episode"}
-            onClick={handlePlayClick}
-          >
-            {isCurrentEpisode && isPlaying ? (
-              <Pause size={16} />
-            ) : (
-              <Play size={16} className="ml-0.5" />
+        {showChevron ? (
+          <ChevronRight
+            size={20}
+            className="text-gray-300 group-hover:text-gray-500 transition-colors"
+          />
+        ) : (
+          <>
+            {onSaveToggle && (
+              <button
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+                  isSaved
+                    ? "bg-gray-900 text-white"
+                    : "bg-gray-100 group-hover:bg-gray-200 text-gray-600"
+                }`}
+                title={isSaved ? "Remove from library" : "Save to library"}
+                onClick={handleSaveClick}
+              >
+                <Bookmark size={16} className={isSaved ? "fill-current" : ""} />
+              </button>
             )}
-          </button>
+            {episode.audio_url && (
+              <button
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+                  isCurrentEpisode && isPlaying
+                    ? "bg-gray-900 text-white"
+                    : "bg-gray-100 group-hover:bg-gray-200 text-gray-600"
+                }`}
+                title={isPlaying && isCurrentEpisode ? "Pause episode" : "Play episode"}
+                onClick={handlePlayClick}
+              >
+                {isCurrentEpisode && isPlaying ? (
+                  <Pause size={16} />
+                ) : (
+                  <Play size={16} className="ml-0.5" />
+                )}
+              </button>
+            )}
+          </>
         )}
       </div>
     </div>

@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { X } from "lucide-react";
 import { Transcript as TranscriptType, getUtterances, UtteranceParagraph } from "@/lib/types";
+import { formatTimeMs, formatDurationVerbose } from "@/lib/formatters";
 
 export interface SelectedText {
   text: string;
@@ -26,21 +27,6 @@ interface TranscriptProps {
   onSaveAnnotation: (text: string, note: string, speaker: string | null, startMs: number) => void;
   onEditAnnotation: (id: string, note: string) => void;
   onDeleteAnnotation: (id: string) => void;
-}
-
-function formatTime(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  const mins = Math.floor(totalSeconds / 60);
-  const secs = totalSeconds % 60;
-  return `${mins}:${secs.toString().padStart(2, "0")}`;
-}
-
-function formatDuration(ms: number): string {
-  const totalSeconds = Math.floor(ms / 1000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const mins = Math.floor(totalSeconds / 60);
-  const secs = totalSeconds % 60;
-  return secs > 0 ? `${mins}m ${secs}s` : `${mins}m`;
 }
 
 // Pastel color palette for speaker distinction
@@ -276,7 +262,7 @@ export default function Transcript({
       {/* Skipped intro indicator */}
       {skippedIntro && (
         <p className="text-sm text-gray-400 italic mb-4">
-          {formatDuration(transcript.content_start_ms)} of intro skipped
+          {formatDurationVerbose(transcript.content_start_ms)} of intro skipped
         </p>
       )}
 
@@ -287,7 +273,7 @@ export default function Transcript({
               {utterance.speaker || "Speaker"}
             </span>
             <span className="text-xs text-gray-400">
-              {formatTime(utterance.start)}
+              {formatTimeMs(utterance.start)}
             </span>
           </div>
           {utterance.paragraphs.map((para, i) => {
@@ -346,7 +332,7 @@ export default function Transcript({
       {/* Skipped outro indicator */}
       {skippedOutro && (
         <p className="text-sm text-gray-400 italic mt-6">
-          {formatDuration(
+          {formatDurationVerbose(
             transcript.audio_duration - transcript.content_end_ms!
           )}{" "}
           of outro skipped

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Rss, ChevronRight } from "lucide-react";
 import { Subscription } from "@/lib/types";
 import { useAuth } from "@/context/AuthContext";
+import { EpisodeListSkeleton } from "@/components/Skeleton";
 import * as api from "@/lib/api";
 
 export default function SubscriptionsPage() {
@@ -62,17 +63,7 @@ export default function SubscriptionsPage() {
         <h1 className="text-3xl font-serif text-gray-900 mb-6">Subscriptions</h1>
 
         {isLoading ? (
-          <div className="space-y-2">
-            {[...Array(3)].map((_, i) => (
-              <div key={i} className="flex gap-4 p-4 animate-pulse">
-                <div className="w-16 h-16 bg-gray-200 rounded-md" />
-                <div className="flex-1 space-y-2">
-                  <div className="h-5 bg-gray-200 rounded w-3/4" />
-                  <div className="h-4 bg-gray-200 rounded w-1/4" />
-                </div>
-              </div>
-            ))}
-          </div>
+          <EpisodeListSkeleton />
         ) : subscriptions.length === 0 ? (
           <div className="text-center py-16">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-gray-100 flex items-center justify-center">

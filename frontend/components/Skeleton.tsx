@@ -80,3 +80,20 @@ export function EpisodeHeaderSkeleton() {
     </div>
   );
 }
+
+export function EpisodeListSkeleton({ count = 3 }: { count?: number }) {
+  return (
+    <div className="space-y-2">
+      {[...Array(count)].map((_, i) => (
+        <div key={i} className="flex gap-4 p-4 animate-pulse">
+          <div className="w-16 h-16 bg-gray-200 rounded-md" />
+          <div className="flex-1 space-y-2">
+            <div className="h-5 bg-gray-200 rounded w-3/4" />
+            <div className="h-4 bg-gray-200 rounded w-1/2" />
+            <div className="h-3 bg-gray-200 rounded w-1/4" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
