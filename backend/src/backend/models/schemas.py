@@ -125,12 +125,23 @@ class TranscriptUtterance(BaseModel):
     paragraphs: list[str]  # Split by paragraph boundaries for better readability
 
 
+class SpeakerMapping(BaseModel):
+    """A mapping from speaker ID to identified name."""
+
+    speaker_id: str  # e.g. "A", "B", "C"
+    name: str  # e.g. "Joe Rogan", "Elon Musk"
+
+
 class TranscriptAnalysis(BaseModel):
     """Structured output from LLM analysis of transcript."""
 
     content_start_ms: int
     content_end_ms: int | None = None
-    speaker_labels: dict[str, str]  # e.g. {"A": "Joe Rogan", "B": "Elon Musk"}
+    speakers: list[SpeakerMapping]  # List of identified speakers
+
+    def to_speaker_labels_dict(self) -> dict[str, str]:
+        """Convert speakers list to dict format for API compatibility."""
+        return {s.speaker_id: s.name for s in self.speakers}
 
 
 class TranscriptResponse(BaseModel):

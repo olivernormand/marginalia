@@ -302,14 +302,14 @@ async def analyze_transcript(
 ) -> TranscriptAnalysis:
     """Analyze transcript to find content bounds and identify speakers.
 
-    Uses Claude to detect intro/outro music and identify speaker names.
+    Uses Claude with extended thinking to detect intro/outro and identify speakers.
     Returns default values (no filtering, no labels) if analysis fails.
     """
     if not words:
         return TranscriptAnalysis(
             content_start_ms=0,
             content_end_ms=None,
-            speaker_labels={},
+            speakers=[],
         )
 
     # Get first and last 5 minutes of content
@@ -366,10 +366,7 @@ async def analyze_transcript(
         "\n".join(metadata_parts) if metadata_parts else "No metadata available"
     )
 
-    prompt = f"""Analyze this podcast transcript to identify:
-1. Where the actual content begins (after any intro music, jingles, or produced intros)
-2. Where the actual content ends (before any outro music, credits, or ad reads)
-3. The real names of the speakers, if identifiable from context
+    prompt = f"""Analyze this podcast transcript.
 
 ## Podcast/Episode Info
 {metadata_section}
@@ -380,20 +377,24 @@ async def analyze_transcript(
 ## Last 5 minutes of transcript
 {format_chunks(last_words)}
 
-## Instructions
-- For content_start_ms: Return the timestamp (in milliseconds) where hosts actually begin speaking substantive content. Skip intro music, jingles, and produced intros, but keep all host conversation and banter.
-- For content_end_ms: Return the timestamp (in milliseconds) where the main content ends. Skip outro music, end credits, and trailing ad reads. Return null if content goes to the end.
-- For speaker_labels: Map speaker IDs (like "A", "B") to real names if you can identify them from the podcast/episode info or from how they introduce themselves. Use empty dict if unknown.
+## Your Task
+1. **content_start_ms**: Find where substantive content begins (in milliseconds). Skip ads, intro music/jingles, produced intros. Keep host banter.
+2. **content_end_ms**: Find where main content ends (in milliseconds). Skip outro music, credits, trailing ads. Use null if content goes to the end.
+3. **speakers**: Identify who each speaker ID (A, B, C, etc.) is. Look for:
+   - Explicit introductions like "I'm [Name]" or "Welcome to [show], I'm [Name]"
+   - Your knowledge of well-known podcast hosts
+   - Context clues from the conversation
 
-Return 0 for content_start_ms if content starts immediately.
-Return null for content_end_ms if content goes to the end."""
+For speakers: Make your best guess based on available evidence. Include all speaker IDs you can identify.
+Note: The automatic diarization sometimes incorrectly splits one person into multiple speaker IDs. If you believe two IDs (e.g., A and C) are actually the same person, assign them the same name - this is expected and helpful."""
 
     try:
         client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
         response = await client.beta.messages.parse(
             model="claude-haiku-4-5-20251001",
-            max_tokens=1024,
+            max_tokens=16000,
             betas=["structured-outputs-2025-11-13"],
+            thinking={"type": "enabled", "budget_tokens": 5000},
             messages=[{"role": "user", "content": prompt}],
             output_format=TranscriptAnalysis,
         )
@@ -406,7 +407,7 @@ Return null for content_end_ms if content goes to the end."""
         return TranscriptAnalysis(
             content_start_ms=0,
             content_end_ms=None,
-            speaker_labels={},
+            speakers=[],
         )
 
 
@@ -565,7 +566,7 @@ async def poll_transcription(job_id: str) -> TranscriptionJobResponse:
             paragraphs=paragraphs,
             content_start_ms=analysis.content_start_ms,
             content_end_ms=analysis.content_end_ms,
-            speaker_labels=analysis.speaker_labels,
+            speaker_labels=analysis.to_speaker_labels_dict(),
         )
     elif status == "error":
         db.update_transcription_status(
