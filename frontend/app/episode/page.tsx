@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState, useCallback } from "react";
+import { Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { ArrowLeft, Loader2, FileText, AlertCircle } from "lucide-react";
 import Link from "next/link";
@@ -49,6 +49,9 @@ function EpisodeContent() {
   // Annotation state
   const [annotations, setAnnotations] = useState<SavedAnnotation[]>([]);
   const [showAllNotes, setShowAllNotes] = useState(false);
+
+  // Ref for scrolling to current transcript position
+  const transcriptRef = useRef<HTMLDivElement>(null);
 
   // Load annotations from backend when transcript is available
   useEffect(() => {
@@ -310,6 +313,15 @@ function EpisodeContent() {
     [session?.access_token]
   );
 
+  const handleJumpToTranscript = useCallback(() => {
+    if (!transcriptRef.current) return;
+    // Find the currently active paragraph (has data-active attribute)
+    const activeElement = transcriptRef.current.querySelector("[data-active='true']");
+    if (activeElement) {
+      activeElement.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, []);
+
   if (isLoading) {
     return (
       <div className="animate-in fade-in duration-300">
@@ -437,7 +449,7 @@ function EpisodeContent() {
           </div>
 
           {transcript ? (
-            <div className="animate-in fade-in duration-300">
+            <div ref={transcriptRef} className="animate-in fade-in duration-300">
               <TranscriptView
                 transcript={transcript}
                 currentTime={currentTime}
@@ -524,6 +536,7 @@ function EpisodeContent() {
           episodeTitle={episode.title}
           podcastTitle={podcastTitle || undefined}
           onTimeUpdate={setCurrentTime}
+          onJumpToTranscript={transcript ? handleJumpToTranscript : undefined}
           seekTo={seekToTime}
         />
       )}

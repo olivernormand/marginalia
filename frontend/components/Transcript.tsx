@@ -305,6 +305,7 @@ export default function Transcript({
                 {/* Transcript text */}
                 <div
                   onMouseUp={() => handleMouseUp(para, utterance.speaker)}
+                  data-active={isActive ? "true" : undefined}
                   className={`flex-1 cursor-pointer select-text transition-colors rounded -mx-3 px-3 py-1 ${
                     isActive ? "bg-amber-50" : "hover:bg-gray-50"
                   }`}

@@ -8,6 +8,7 @@ import {
   RotateCw,
   Volume2,
   VolumeX,
+  ListMusic,
 } from "lucide-react";
 
 interface AudioPlayerProps {
@@ -17,6 +18,7 @@ interface AudioPlayerProps {
   onClose?: () => void;
   onPlayingChange?: (isPlaying: boolean) => void;
   onTimeUpdate?: (currentTime: number) => void;
+  onJumpToTranscript?: () => void; // Scroll transcript to current position
   seekTo?: number | null; // When set, seeks to this time in seconds
 }
 
@@ -40,6 +42,7 @@ export default function AudioPlayer({
   onClose,
   onPlayingChange,
   onTimeUpdate,
+  onJumpToTranscript,
   seekTo,
 }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -253,6 +256,18 @@ export default function AudioPlayer({
           <div className="text-xs text-gray-500 tabular-nums w-24 text-center">
             {formatTime(currentTime)} / {formatTime(duration)}
           </div>
+
+          {/* Jump to transcript */}
+          {onJumpToTranscript && (
+            <button
+              onClick={onJumpToTranscript}
+              className="p-2 text-gray-600 hover:text-gray-900 transition-colors"
+              title="Jump to current position in transcript"
+              aria-label="Jump to current position in transcript"
+            >
+              <ListMusic size={18} />
+            </button>
+          )}
 
           {/* Playback speed */}
           <button
