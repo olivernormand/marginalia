@@ -17,18 +17,22 @@ Marginalia builds towards a seamless experience for listening to podcasts and ca
 
 ## Current Status
 
-**Phases 1–3 are complete.** The app supports:
+**Phases 1–5 are complete.** The app supports:
 - Searching, browsing, and playing podcasts
 - Transcription with speaker diarization and paragraph segmentation
 - LLM-powered content detection (skip intro/outro music, identify speakers)
 - Inline margin notes with click-to-seek and editing
+- Audio caching via Cloudflare R2 (ensures transcript-audio alignment)
+- User authentication via Supabase Auth
+- Persistent annotations per-user with Row Level Security
 
 **Key implementation differences from spec:**
 - Using **Podcast Index API** instead of Apple Podcasts API (open, free, better metadata)
 - Using **AssemblyAI** instead of ElevenLabs for transcription (better paragraph detection)
 - Using **Claude Haiku** for transcript analysis (speaker identification, content bounds)
 - Using **uv** for Python dependency management instead of Docker
-- Local SQLite for development instead of Supabase (migration planned)
+- Using **Cloudflare R2** for audio caching (zero egress costs)
+- Using **Supabase PostgreSQL** for production database with RLS
 - URLs use query params (`/podcast?id=123`) rather than path params (`/podcast/[id]`)
 
 ---
@@ -39,10 +43,11 @@ Marginalia builds towards a seamless experience for listening to podcasts and ca
 |-------|------------|-----------|
 | Frontend | Next.js + Tailwind CSS | Modern React framework with excellent DX. Lucide icons for UI elements. |
 | Backend | FastAPI (Python) | Fast to develop, async support, automatic OpenAPI docs, Pydantic validation. |
-| Database | SQLite (local) → Supabase (prod) | SQLite for local dev, Supabase for production with auth and RLS. |
+| Database | Supabase PostgreSQL | Production database with Row Level Security for user data isolation. |
+| Audio Cache | Cloudflare R2 | Zero egress costs for audio file storage and delivery. |
 | Transcription | AssemblyAI | Speaker diarization, paragraph detection, word-level timestamps. |
 | Transcript Analysis | Claude Haiku | Structured outputs for speaker identification and content bounds detection. |
-| Auth | Supabase Auth (Google OAuth) | Simple integration. Google-only login for simplicity. Planned for Phase 5. |
+| Auth | Supabase Auth | Email/password authentication with JWT tokens. |
 | Hosting | Vercel + Fly.io | Vercel for Next.js frontend, Fly.io for FastAPI backend. Planned. |
 
 **Deployment (Future):**
@@ -535,12 +540,86 @@ CREATE INDEX idx_notes_podcast ON notes(podcast_id);
 - [x] Edit notes inline (click note text to edit)
 - [x] Delete notes (hover to reveal delete button)
 - [x] "View all notes" sidebar toggle
-- [x] Notes stored in component state (backend persistence in Phase 4)
+- [x] Notes stored in component state (backend persistence in Phase 5)
 
-### Phase 4: MCP Server
+### Phase 4: Audio Caching ✅
+**Goal:** Ensure audio-transcript timestamp alignment by caching audio files.
+
+**The problem:** Many podcasts use dynamic ad insertion (DAI). The RSS `<enclosure>` URL doesn't serve a static file—it assembles audio on-the-fly with different ads each request. This means:
+- Audio transcribed at time T₁ has different timestamps than audio played at T₂
+- Click-to-seek breaks because the transcript timestamps don't match the current audio
+- Annotations become misaligned with their source content
+
+**The solution:** Cache the exact audio file at transcription time and serve that for playback.
+
+- [x] Set up Cloudflare R2 bucket for audio files (public)
+- [x] On transcription request: download MP3 → upload to R2 → transcribe that URL
+- [x] Add `cached_audio_url` column to transcriptions table
+- [x] Frontend: use `cached_audio_url` for playback when available
+
+**Future alternative: Amplitude Envelope Sync**
+
+The audio caching approach works but has costs (storage). An alternative that avoids storing audio entirely:
+
+*The insight:* The actual podcast content (speech waveforms) is identical regardless of which ads are dynamically inserted. We don't need the full audio—just enough information to recognize "where are we in the content?"
+
+*Amplitude envelope:* A compact representation of audio loudness over time. Speech has distinctive patterns—words, pauses, emphasis—that create a recognizable "shape." Store ~350KB per hour instead of ~100MB.
+
+*Trade-off:* More engineering complexity than caching. Implement when storage costs justify it.
+
+### Phase 5: Auth + User Management ✅
+**Goal:** Add user accounts, persist data.
+
+- [x] Set up Supabase project with PostgreSQL
+- [x] Migrate SQLite schema to Supabase
+- [x] Set up Supabase Auth (email/password)
+- [x] Add login/logout UI with Supabase Auth UI
+- [x] Create annotations table with `user_id` and RLS
+- [x] Protect annotation endpoints with JWT validation
+- [x] Frontend persists annotations to backend
+- [x] Annotations include `synced_to_readwise` and `last_synced_at` for future Readwise integration
+- [ ] Deploy frontend to Vercel
+- [ ] Deploy backend to Fly.io
+
+### Phase 6: Speaker Labels & App Navigation
+**Goal:** Allow users to edit speaker labels and add proper app-wide navigation.
+
+**Debug Claude Speaker Identification:**
+The Claude Haiku analysis for speaker identification and content bounds detection isn't working. Need to investigate and fix.
+
+- [ ] Debug why `analyze_transcript()` returns empty `speaker_labels`
+- [ ] Check Claude API response and structured output parsing
+- [ ] Verify prompt is receiving correct transcript data
+- [ ] Add logging/observability for LLM analysis step
+- [ ] Test with multiple podcasts to identify patterns
+
+**Speaker Label Editing:**
+Users should be able to correct/customize speaker labels in transcripts. Once auto-labeling works, users can refine; if it fails, users can manually label.
+
+- [ ] Add speaker label editor UI in transcript view
+- [ ] Options: custom text input, previously used labels (excluding A/B/C), "Advert" label
+- [ ] Update `speaker_labels_json` in database when user edits
+- [ ] Labels apply globally to transcript (all instances of speaker update)
+- [ ] "Advert" label allows marking ad segments for potential future filtering
+
+**App Navigation with shadcn/ui:**
+Move from page-based navigation to proper app shell with collapsible sidebar.
+
+- [ ] Install shadcn/ui (`pnpm dlx shadcn@latest init`)
+- [ ] Add shadcn/ui Sidebar component
+- [ ] Create persistent header with logo (click to go home)
+- [ ] Sidebar navigation:
+  - Home (search)
+  - Subscriptions (followed podcasts)
+  - Library (saved episodes)
+  - Transcribed (episodes with transcripts)
+- [ ] Collapsible sidebar (icons only when collapsed, full width on mobile as drawer)
+- [ ] User menu in header
+
+### Phase 7: MCP Server
 **Goal:** Expose transcripts and annotations via MCP for use in Claude Desktop and other tools.
 
-The insight: rather than building a chat UI (which would duplicate Claude Desktop), expose the data where it's most useful. Users can query their podcast knowledge base from any MCP-enabled client. This can work with local SQLite initially.
+The insight: rather than building a chat UI (which would duplicate Claude Desktop), expose the data where it's most useful. Users can query their podcast knowledge base from any MCP-enabled client.
 
 - [ ] Create MCP server package
 - [ ] `search_transcripts(query)` - full-text search across transcribed episodes
@@ -550,20 +629,7 @@ The insight: rather than building a chat UI (which would duplicate Claude Deskto
 - [ ] Package for easy local installation
 - [ ] Test with Claude Desktop
 
-### Phase 5: Auth + User Management
-**Goal:** Add user accounts, persist data, deploy to production.
-
-- [ ] Set up Supabase project with Postgres
-- [ ] Migrate SQLite schema to Supabase
-- [ ] Set up Supabase Auth with Google OAuth
-- [ ] Add login/logout UI
-- [ ] Add `user_id` to annotations table with RLS
-- [ ] Protect API endpoints with JWT validation
-- [ ] Deploy frontend to Vercel
-- [ ] Deploy backend to Fly.io
-- [ ] Update MCP server to use Supabase + auth
-
-### Phase 6: Subscriptions + Pre-emptive Transcription
+### Phase 8: Subscriptions + Pre-emptive Transcription
 **Goal:** Users subscribe to podcasts; new episodes auto-transcribe.
 
 - [ ] Podcast subscriptions (users can follow podcasts)
@@ -576,7 +642,7 @@ The insight: rather than building a chat UI (which would duplicate Claude Deskto
   - Paid tier: auto-transcription for subscriptions
   - Or: community pooling (transcribe once, share across subscribers)
 
-### Phase 7: Analytics + Observability
+### Phase 9: Analytics + Observability
 **Goal:** Understand how people use Marginalia.
 
 Key events to track:

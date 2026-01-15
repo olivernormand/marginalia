@@ -33,8 +33,8 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center px-4">
       <div className="mb-8 text-center">
-        <h1 className="text-3xl font-serif text-gray-900 mb-2">Marginalia</h1>
-        <p className="text-gray-500">Listen deeply, note carefully</p>
+        <h1 className="text-3xl font-serif text-gray-900 mb-2">Welcome back</h1>
+        <p className="text-gray-500">Sign in to continue</p>
       </div>
 
       <div className="w-full max-w-sm">

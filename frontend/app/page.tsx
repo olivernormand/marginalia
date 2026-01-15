@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { ChevronRight, Search } from "lucide-react";
 import { PodcastSearchResult, TrendingPodcast } from "@/lib/types";
 import { API_BASE } from "@/lib/config";
-import Header from "@/components/Header";
 import SearchBar from "@/components/SearchBar";
 import PodcastCard from "@/components/PodcastCard";
 import { PodcastCardSkeleton, TrendingPodcastSkeleton } from "@/components/Skeleton";
@@ -64,9 +63,8 @@ export default function Home() {
   };
 
   return (
-    <div className="min-h-screen bg-white">
-      <div className="max-w-4xl mx-auto px-8 py-12">
-        <Header />
+    <div className="min-h-screen">
+      <div className="max-w-4xl mx-auto px-8 py-8">
         <SearchBar
           query={query}
           onQueryChange={setQuery}

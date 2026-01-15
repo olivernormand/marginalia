@@ -284,8 +284,8 @@ function PodcastPageSkeleton() {
 
 export default function PodcastPage() {
   return (
-    <div className="min-h-screen bg-white">
-      <div className="max-w-4xl mx-auto px-8 py-12">
+    <div className="min-h-screen">
+      <div className="max-w-4xl mx-auto px-8 py-8">
         <Suspense fallback={<PodcastPageSkeleton />}>
           <PodcastContent />
         </Suspense>
