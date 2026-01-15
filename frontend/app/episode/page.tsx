@@ -53,6 +53,11 @@ function EpisodeContent() {
   // Ref for scrolling to current transcript position
   const transcriptRef = useRef<HTMLDivElement>(null);
 
+  // Follow mode: auto-scroll transcript with audio until user manually scrolls
+  const [isFollowMode, setIsFollowMode] = useState(false);
+  const isScrollingProgrammatically = useRef(false);
+  const lastActiveElement = useRef<Element | null>(null);
+
   // Load annotations from backend when transcript is available
   useEffect(() => {
     if (!guid || !session?.access_token || !transcript) return;
@@ -313,14 +318,49 @@ function EpisodeContent() {
     [session?.access_token]
   );
 
-  const handleJumpToTranscript = useCallback(() => {
+  const scrollToActive = useCallback((enableFollow = false) => {
     if (!transcriptRef.current) return;
-    // Find the currently active paragraph (has data-active attribute)
+    if (enableFollow) setIsFollowMode(true);
+
     const activeElement = transcriptRef.current.querySelector("[data-active='true']");
     if (activeElement) {
+      isScrollingProgrammatically.current = true;
+      lastActiveElement.current = activeElement;
       activeElement.scrollIntoView({ behavior: "smooth", block: "center" });
+      // Reset flag after scroll animation completes
+      setTimeout(() => {
+        isScrollingProgrammatically.current = false;
+      }, 1000);
     }
   }, []);
+
+  const handleJumpToTranscript = useCallback(() => {
+    scrollToActive(true);
+  }, [scrollToActive]);
+
+  // Auto-scroll when in follow mode and the active element changes
+  useEffect(() => {
+    if (!isFollowMode || !transcriptRef.current) return;
+
+    const activeElement = transcriptRef.current.querySelector("[data-active='true']");
+    // Only scroll if the active element has actually changed
+    if (activeElement && activeElement !== lastActiveElement.current) {
+      scrollToActive();
+    }
+  }, [isFollowMode, currentTime, scrollToActive]);
+
+  // Detect manual scroll to disable follow mode
+  useEffect(() => {
+    if (!isFollowMode) return;
+
+    const handleScroll = () => {
+      if (!isScrollingProgrammatically.current) {
+        setIsFollowMode(false);
+      }
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, [isFollowMode]);
 
   if (isLoading) {
     return (
@@ -537,6 +577,7 @@ function EpisodeContent() {
           podcastTitle={podcastTitle || undefined}
           onTimeUpdate={setCurrentTime}
           onJumpToTranscript={transcript ? handleJumpToTranscript : undefined}
+          isFollowingTranscript={isFollowMode}
           seekTo={seekToTime}
         />
       )}

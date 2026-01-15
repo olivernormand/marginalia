@@ -19,6 +19,7 @@ interface AudioPlayerProps {
   onPlayingChange?: (isPlaying: boolean) => void;
   onTimeUpdate?: (currentTime: number) => void;
   onJumpToTranscript?: () => void; // Scroll transcript to current position
+  isFollowingTranscript?: boolean; // Whether auto-scroll is active
   seekTo?: number | null; // When set, seeks to this time in seconds
 }
 
@@ -43,6 +44,7 @@ export default function AudioPlayer({
   onPlayingChange,
   onTimeUpdate,
   onJumpToTranscript,
+  isFollowingTranscript,
   seekTo,
 }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -261,9 +263,13 @@ export default function AudioPlayer({
           {onJumpToTranscript && (
             <button
               onClick={onJumpToTranscript}
-              className="p-2 text-gray-600 hover:text-gray-900 transition-colors"
-              title="Jump to current position in transcript"
-              aria-label="Jump to current position in transcript"
+              className={`p-2 transition-colors ${
+                isFollowingTranscript
+                  ? "text-gray-900 bg-gray-100 rounded"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+              title={isFollowingTranscript ? "Following transcript (scroll to stop)" : "Follow transcript"}
+              aria-label={isFollowingTranscript ? "Following transcript" : "Follow transcript"}
             >
               <ListMusic size={18} />
             </button>
