@@ -7,7 +7,7 @@ import anthropic
 import httpx
 import uvicorn
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 # Load .env file from backend directory
@@ -15,6 +15,7 @@ load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
 from backend import database as db
 from backend import storage
+from backend.auth import get_current_user, get_optional_user
 from backend.models.schemas import (
     PodcastEpisodeResponse,
     PodcastFeedResponse,
@@ -79,6 +80,16 @@ def get_podcast_index_headers() -> dict[str, str]:
 async def health() -> dict[str, str]:
     """Health check endpoint."""
     return {"status": "ok"}
+
+
+@app.get("/me")
+async def get_me(user: dict = Depends(get_current_user)) -> dict:
+    """Get the currently authenticated user's info."""
+    return {
+        "id": user.get("sub"),
+        "email": user.get("email"),
+        "role": user.get("role"),
+    }
 
 
 @app.get("/search")

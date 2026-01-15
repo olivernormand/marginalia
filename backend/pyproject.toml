@@ -17,6 +17,7 @@ dependencies = [
     "assemblyai>=0.48.4",
     "anthropic>=0.75.0",
     "boto3>=1.42.27",
+    "PyJWT[crypto]>=2.8.0",
 ]
 
 [project.scripts]
