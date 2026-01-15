@@ -65,6 +65,8 @@ def create_transcription(
     podcast_description: str | None = None,
     episode_title: str | None = None,
     episode_description: str | None = None,
+    artwork_url: str | None = None,
+    episode_duration_seconds: int | None = None,
 ) -> None:
     """Create a new transcription job record."""
     supabase = get_supabase()
@@ -80,6 +82,8 @@ def create_transcription(
             "podcast_description": podcast_description,
             "episode_title": episode_title,
             "episode_description": episode_description,
+            "artwork_url": artwork_url,
+            "episode_duration_seconds": episode_duration_seconds,
         }
     ).execute()
 
@@ -256,3 +260,179 @@ def mark_annotations_synced(annotation_ids: list[str]) -> None:
             "last_synced_at": datetime.now(timezone.utc).isoformat(),
         }
     ).in_("id", annotation_ids).execute()
+
+
+# ============================================
+# SUBSCRIPTION FUNCTIONS
+# ============================================
+
+
+def get_subscriptions(user_id: str) -> list[dict]:
+    """Get all subscriptions for a user."""
+    supabase = get_supabase()
+    result = (
+        supabase.table("subscriptions")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return result.data or []
+
+
+def get_subscription(user_id: str, podcast_id: int) -> dict | None:
+    """Check if user is subscribed to a podcast."""
+    supabase = get_supabase()
+    try:
+        result = (
+            supabase.table("subscriptions")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("podcast_id", podcast_id)
+            .maybe_single()
+            .execute()
+        )
+        return result.data if result else None
+    except Exception as e:
+        print(f"Error checking subscription: {e}")
+        return None
+
+
+def create_subscription(
+    user_id: str,
+    podcast_id: int,
+    podcast_title: str,
+    feed_url: str,
+    podcast_author: str | None = None,
+    artwork_url: str | None = None,
+) -> dict:
+    """Subscribe to a podcast."""
+    supabase = get_supabase()
+    result = (
+        supabase.table("subscriptions")
+        .insert(
+            {
+                "user_id": user_id,
+                "podcast_id": podcast_id,
+                "podcast_title": podcast_title,
+                "podcast_author": podcast_author,
+                "artwork_url": artwork_url,
+                "feed_url": feed_url,
+            }
+        )
+        .execute()
+    )
+    return result.data[0] if result.data else {}
+
+
+def delete_subscription(user_id: str, podcast_id: int) -> bool:
+    """Unsubscribe from a podcast."""
+    supabase = get_supabase()
+    result = (
+        supabase.table("subscriptions")
+        .delete()
+        .eq("user_id", user_id)
+        .eq("podcast_id", podcast_id)
+        .execute()
+    )
+    return len(result.data) > 0 if result.data else False
+
+
+# ============================================
+# SAVED EPISODES FUNCTIONS
+# ============================================
+
+
+def get_saved_episodes(user_id: str) -> list[dict]:
+    """Get all saved episodes for a user."""
+    supabase = get_supabase()
+    result = (
+        supabase.table("saved_episodes")
+        .select("*")
+        .eq("user_id", user_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return result.data or []
+
+
+def get_saved_episode(user_id: str, episode_guid: str) -> dict | None:
+    """Check if user has saved an episode."""
+    supabase = get_supabase()
+    try:
+        result = (
+            supabase.table("saved_episodes")
+            .select("*")
+            .eq("user_id", user_id)
+            .eq("episode_guid", episode_guid)
+            .maybe_single()
+            .execute()
+        )
+        return result.data if result else None
+    except Exception as e:
+        print(f"Error checking saved episode: {e}")
+        return None
+
+
+def create_saved_episode(
+    user_id: str,
+    podcast_id: int,
+    episode_guid: str,
+    episode_title: str,
+    podcast_title: str | None = None,
+    artwork_url: str | None = None,
+    audio_url: str | None = None,
+    pub_date: str | None = None,
+    duration_seconds: int | None = None,
+) -> dict:
+    """Save an episode."""
+    supabase = get_supabase()
+    result = (
+        supabase.table("saved_episodes")
+        .insert(
+            {
+                "user_id": user_id,
+                "podcast_id": podcast_id,
+                "episode_guid": episode_guid,
+                "episode_title": episode_title,
+                "podcast_title": podcast_title,
+                "artwork_url": artwork_url,
+                "audio_url": audio_url,
+                "pub_date": pub_date,
+                "duration_seconds": duration_seconds,
+            }
+        )
+        .execute()
+    )
+    return result.data[0] if result.data else {}
+
+
+def delete_saved_episode(user_id: str, episode_guid: str) -> bool:
+    """Remove a saved episode."""
+    supabase = get_supabase()
+    result = (
+        supabase.table("saved_episodes")
+        .delete()
+        .eq("user_id", user_id)
+        .eq("episode_guid", episode_guid)
+        .execute()
+    )
+    return len(result.data) > 0 if result.data else False
+
+
+# ============================================
+# TRANSCRIPTION LIST FUNCTIONS
+# ============================================
+
+
+def get_all_transcripts() -> list[dict]:
+    """Get all completed transcripts in the system."""
+    supabase = get_supabase()
+    result = (
+        supabase.table("transcriptions")
+        .select("id, episode_guid, podcast_id, podcast_title, episode_title, audio_duration, episode_duration_seconds, completed_at, artwork_url")
+        .eq("status", "completed")
+        .order("completed_at", desc=True)
+        .execute()
+    )
+    return result.data or []

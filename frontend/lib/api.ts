@@ -1,5 +1,13 @@
 import { API_BASE } from "./config";
-import { Annotation, AnnotationCreate } from "./types";
+import {
+  Annotation,
+  AnnotationCreate,
+  Subscription,
+  SubscriptionCreate,
+  SavedEpisode,
+  SavedEpisodeCreate,
+  TranscriptListItem,
+} from "./types";
 
 /**
  * Fetch with auth token from Supabase session
@@ -98,4 +106,156 @@ export async function deleteAnnotation(
   if (!response.ok) {
     throw new Error("Failed to delete annotation");
   }
+}
+
+// --- Subscription API ---
+
+export async function getSubscriptions(token: string): Promise<Subscription[]> {
+  const response = await fetchWithAuth(`${API_BASE}/subscriptions`, {}, token);
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch subscriptions");
+  }
+
+  return response.json();
+}
+
+export async function getSubscription(
+  token: string,
+  podcastId: number
+): Promise<Subscription | null> {
+  const response = await fetchWithAuth(
+    `${API_BASE}/subscriptions/${podcastId}`,
+    {},
+    token
+  );
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error("Failed to check subscription");
+  }
+
+  return response.json();
+}
+
+export async function createSubscription(
+  token: string,
+  subscription: SubscriptionCreate
+): Promise<Subscription> {
+  const response = await fetchWithAuth(
+    `${API_BASE}/subscriptions`,
+    {
+      method: "POST",
+      body: JSON.stringify(subscription),
+    },
+    token
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to subscribe");
+  }
+
+  return response.json();
+}
+
+export async function deleteSubscription(
+  token: string,
+  podcastId: number
+): Promise<void> {
+  const response = await fetchWithAuth(
+    `${API_BASE}/subscriptions/${podcastId}`,
+    {
+      method: "DELETE",
+    },
+    token
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to unsubscribe");
+  }
+}
+
+// --- Saved Episodes API ---
+
+export async function getSavedEpisodes(token: string): Promise<SavedEpisode[]> {
+  const response = await fetchWithAuth(`${API_BASE}/saved-episodes`, {}, token);
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch saved episodes");
+  }
+
+  return response.json();
+}
+
+export async function getSavedEpisode(
+  token: string,
+  episodeGuid: string
+): Promise<SavedEpisode | null> {
+  const response = await fetchWithAuth(
+    `${API_BASE}/saved-episodes/${encodeURIComponent(episodeGuid)}`,
+    {},
+    token
+  );
+
+  if (response.status === 404) {
+    return null;
+  }
+
+  if (!response.ok) {
+    throw new Error("Failed to check saved episode");
+  }
+
+  return response.json();
+}
+
+export async function createSavedEpisode(
+  token: string,
+  episode: SavedEpisodeCreate
+): Promise<SavedEpisode> {
+  const response = await fetchWithAuth(
+    `${API_BASE}/saved-episodes`,
+    {
+      method: "POST",
+      body: JSON.stringify(episode),
+    },
+    token
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to save episode");
+  }
+
+  return response.json();
+}
+
+export async function deleteSavedEpisode(
+  token: string,
+  episodeGuid: string
+): Promise<void> {
+  const response = await fetchWithAuth(
+    `${API_BASE}/saved-episodes/${encodeURIComponent(episodeGuid)}`,
+    {
+      method: "DELETE",
+    },
+    token
+  );
+
+  if (!response.ok) {
+    throw new Error("Failed to unsave episode");
+  }
+}
+
+// --- Transcripts List API ---
+
+export async function getTranscripts(): Promise<TranscriptListItem[]> {
+  const response = await fetch(`${API_BASE}/transcripts`);
+
+  if (!response.ok) {
+    throw new Error("Failed to fetch transcripts");
+  }
+
+  return response.json();
 }

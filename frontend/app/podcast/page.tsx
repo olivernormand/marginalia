@@ -2,10 +2,12 @@
 
 import { Suspense, useEffect, useState, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { ArrowLeft, Search, AlertCircle } from "lucide-react";
+import { ArrowLeft, Search, AlertCircle, Plus, Check } from "lucide-react";
 import Link from "next/link";
 import { PodcastFeed, PodcastEpisode, PodcastInfo } from "@/lib/types";
 import { API_BASE } from "@/lib/config";
+import { useAuth } from "@/context/AuthContext";
+import * as api from "@/lib/api";
 import EpisodeCard from "@/components/EpisodeCard";
 import AudioPlayer from "@/components/AudioPlayer";
 import { Skeleton, EpisodeCardSkeleton } from "@/components/Skeleton";
@@ -14,6 +16,7 @@ const EPISODES_PER_BATCH = 20;
 function PodcastContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { session } = useAuth();
   const podcastId = searchParams.get("id");
 
   const [podcastInfo, setPodcastInfo] = useState<PodcastInfo | null>(null);
@@ -25,6 +28,13 @@ function PodcastContent() {
   const [visibleCount, setVisibleCount] = useState(EPISODES_PER_BATCH);
   const [episodeSearch, setEpisodeSearch] = useState("");
   const sentinelRef = useRef<HTMLDivElement>(null);
+
+  // Subscription state
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [isSubscribing, setIsSubscribing] = useState(false);
+
+  // Saved episodes state - track guids of saved episodes
+  const [savedEpisodeGuids, setSavedEpisodeGuids] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!podcastId) {
@@ -62,6 +72,109 @@ function PodcastContent() {
 
     fetchPodcast();
   }, [podcastId]);
+
+  // Check subscription status
+  useEffect(() => {
+    if (!session?.access_token || !podcastId) return;
+
+    const checkSubscription = async () => {
+      try {
+        const sub = await api.getSubscription(session.access_token, parseInt(podcastId));
+        setIsSubscribed(!!sub);
+      } catch {
+        setIsSubscribed(false);
+      }
+    };
+
+    checkSubscription();
+  }, [session?.access_token, podcastId]);
+
+  // Load saved episodes for this user
+  useEffect(() => {
+    if (!session?.access_token) return;
+
+    const loadSavedEpisodes = async () => {
+      try {
+        const saved = await api.getSavedEpisodes(session.access_token);
+        setSavedEpisodeGuids(new Set(saved.map((ep) => ep.episode_guid)));
+      } catch {
+        // Silently fail - just won't show saved state
+      }
+    };
+
+    loadSavedEpisodes();
+  }, [session?.access_token]);
+
+  const handleSubscribeToggle = async () => {
+    if (!session?.access_token || !podcastId || !podcastInfo) return;
+
+    setIsSubscribing(true);
+    try {
+      if (isSubscribed) {
+        await api.deleteSubscription(session.access_token, parseInt(podcastId));
+        setIsSubscribed(false);
+      } else {
+        await api.createSubscription(session.access_token, {
+          podcast_id: parseInt(podcastId),
+          podcast_title: feed?.title || podcastInfo.title,
+          feed_url: podcastInfo.url,
+          podcast_author: feed?.author || podcastInfo.author,
+          artwork_url: feed?.artwork_url || podcastInfo.artwork,
+        });
+        setIsSubscribed(true);
+      }
+    } catch (err) {
+      console.error("Failed to toggle subscription:", err);
+    } finally {
+      setIsSubscribing(false);
+    }
+  };
+
+  const handleSaveToggle = async (episode: PodcastEpisode) => {
+    if (!session?.access_token || !podcastId || !episode.guid) return;
+
+    const isSaved = savedEpisodeGuids.has(episode.guid);
+
+    // Optimistically update UI
+    setSavedEpisodeGuids((prev) => {
+      const next = new Set(prev);
+      if (isSaved) {
+        next.delete(episode.guid!);
+      } else {
+        next.add(episode.guid!);
+      }
+      return next;
+    });
+
+    try {
+      if (isSaved) {
+        await api.deleteSavedEpisode(session.access_token, episode.guid);
+      } else {
+        await api.createSavedEpisode(session.access_token, {
+          podcast_id: parseInt(podcastId),
+          episode_guid: episode.guid,
+          episode_title: episode.title,
+          podcast_title: feed?.title || podcastInfo?.title,
+          artwork_url: episode.artwork_url || feed?.artwork_url || podcastInfo?.artwork,
+          audio_url: episode.audio_url,
+          pub_date: episode.pub_date,
+          duration_seconds: episode.duration_seconds,
+        });
+      }
+    } catch (err) {
+      // Revert on error
+      console.error("Failed to toggle saved episode:", err);
+      setSavedEpisodeGuids((prev) => {
+        const next = new Set(prev);
+        if (isSaved) {
+          next.add(episode.guid!);
+        } else {
+          next.delete(episode.guid!);
+        }
+        return next;
+      });
+    }
+  };
 
   // Filter episodes based on search
   const filteredEpisodes = feed
@@ -178,12 +291,39 @@ function PodcastContent() {
               />
             )}
             <div className="flex-1">
-              <h1 className="text-4xl font-serif mb-2 text-gray-900">
-                {feed.title || podcastInfo.title}
-              </h1>
-              {feed.author && (
-                <p className="text-gray-500 mb-3">{feed.author}</p>
-              )}
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <h1 className="text-4xl font-serif mb-2 text-gray-900">
+                    {feed.title || podcastInfo.title}
+                  </h1>
+                  {feed.author && (
+                    <p className="text-gray-500 mb-3">{feed.author}</p>
+                  )}
+                </div>
+                {session && (
+                  <button
+                    onClick={handleSubscribeToggle}
+                    disabled={isSubscribing}
+                    className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors flex-shrink-0 ${
+                      isSubscribed
+                        ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                        : "bg-gray-900 text-white hover:bg-gray-800"
+                    } disabled:opacity-50`}
+                  >
+                    {isSubscribed ? (
+                      <>
+                        <Check size={16} />
+                        Subscribed
+                      </>
+                    ) : (
+                      <>
+                        <Plus size={16} />
+                        Subscribe
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
               {feed.description && (
                 <p className="text-sm text-gray-600 line-clamp-4">
                   {feed.description}
@@ -236,6 +376,8 @@ function PodcastContent() {
                     onPlay={handleEpisodePlay}
                     onEpisodeClick={handleEpisodeClick}
                     podcastArtwork={feed.artwork_url || podcastInfo.artwork}
+                    isSaved={episode.guid ? savedEpisodeGuids.has(episode.guid) : false}
+                    onSaveToggle={session ? handleSaveToggle : undefined}
                   />
                 ))}
                 {/* Sentinel for infinite scroll */}

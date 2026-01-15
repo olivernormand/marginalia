@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState, useCallback, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { ArrowLeft, Loader2, FileText, AlertCircle } from "lucide-react";
+import { ArrowLeft, Loader2, FileText, AlertCircle, Bookmark } from "lucide-react";
 import Link from "next/link";
 import {
   PodcastEpisode,
@@ -58,6 +58,10 @@ function EpisodeContent() {
   const isScrollingProgrammatically = useRef(false);
   const lastActiveElement = useRef<Element | null>(null);
 
+  // Saved episode state
+  const [isSaved, setIsSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
   // Load annotations from backend when transcript is available
   useEffect(() => {
     if (!guid || !session?.access_token || !transcript) return;
@@ -85,6 +89,50 @@ function EpisodeContent() {
 
     loadAnnotations();
   }, [guid, session?.access_token, transcript]);
+
+  // Check if episode is saved
+  useEffect(() => {
+    if (!guid || !session?.access_token) return;
+
+    const checkSaved = async () => {
+      try {
+        const saved = await api.getSavedEpisode(session.access_token, guid);
+        setIsSaved(!!saved);
+      } catch {
+        setIsSaved(false);
+      }
+    };
+
+    checkSaved();
+  }, [guid, session?.access_token]);
+
+  const handleSaveToggle = async () => {
+    if (!guid || !podcastId || !episode || !session?.access_token) return;
+
+    setIsSaving(true);
+    try {
+      if (isSaved) {
+        await api.deleteSavedEpisode(session.access_token, guid);
+        setIsSaved(false);
+      } else {
+        await api.createSavedEpisode(session.access_token, {
+          podcast_id: parseInt(podcastId),
+          episode_guid: guid,
+          episode_title: episode.title,
+          podcast_title: podcastInfo?.title,
+          artwork_url: episode.artwork_url || podcastInfo?.artwork,
+          audio_url: episode.audio_url,
+          pub_date: episode.pub_date,
+          duration_seconds: episode.duration_seconds,
+        });
+        setIsSaved(true);
+      }
+    } catch (err) {
+      console.error("Failed to toggle saved episode:", err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Fetch episode data
   useEffect(() => {
@@ -210,6 +258,8 @@ function EpisodeContent() {
           podcast_description: stripHtml(podcastInfo?.description),
           episode_title: episode.title,
           episode_description: stripHtml(episode.description),
+          artwork_url: episode.artwork_url || podcastInfo?.artwork,
+          episode_duration_seconds: episode.duration_seconds,
         }),
       });
 
@@ -449,6 +499,20 @@ function EpisodeContent() {
                 </>
               )}
             </div>
+            {session && (
+              <button
+                onClick={handleSaveToggle}
+                disabled={isSaving}
+                className={`mt-4 flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  isSaved
+                    ? "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    : "bg-gray-900 text-white hover:bg-gray-800"
+                } disabled:opacity-50`}
+              >
+                <Bookmark size={16} className={isSaved ? "fill-current" : ""} />
+                {isSaved ? "Saved" : "Save Episode"}
+              </button>
+            )}
           </div>
         </div>
 

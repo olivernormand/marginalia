@@ -24,9 +24,14 @@ from backend.models.schemas import (
     PodcastFeedResponse,
     PodcastInfoResponse,
     PodcastSearchResult,
+    SavedEpisodeCreate,
+    SavedEpisodeResponse,
+    SubscriptionCreate,
+    SubscriptionResponse,
     TranscribeRequest,
     TranscriptAnalysis,
     TranscriptionJobResponse,
+    TranscriptListItem,
     TranscriptParagraph,
     TranscriptResponse,
     TranscriptWord,
@@ -483,6 +488,8 @@ async def submit_transcription(request: TranscribeRequest) -> TranscriptionJobRe
         podcast_description=request.podcast_description,
         episode_title=request.episode_title,
         episode_description=request.episode_description,
+        artwork_url=request.artwork_url,
+        episode_duration_seconds=request.episode_duration_seconds,
     )
 
     return TranscriptionJobResponse(
@@ -742,6 +749,167 @@ async def delete_annotation(
 
     if not deleted:
         raise HTTPException(status_code=404, detail="Annotation not found")
+
+
+# --- Subscription endpoints ---
+
+
+@app.get("/subscriptions")
+async def get_subscriptions(
+    user: dict = Depends(get_current_user),
+) -> list[SubscriptionResponse]:
+    """Get all subscriptions for the current user."""
+    user_id = user.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid user")
+
+    data = db.get_subscriptions(user_id)
+    return [SubscriptionResponse(**item) for item in data]
+
+
+@app.get("/subscriptions/{podcast_id}")
+async def get_subscription(
+    podcast_id: int,
+    user: dict = Depends(get_current_user),
+) -> SubscriptionResponse | None:
+    """Check if user is subscribed to a podcast."""
+    user_id = user.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid user")
+
+    data = db.get_subscription(user_id, podcast_id)
+    if not data:
+        raise HTTPException(status_code=404, detail="Not subscribed")
+    return SubscriptionResponse(**data)
+
+
+@app.post("/subscriptions", status_code=201)
+async def create_subscription(
+    request: SubscriptionCreate,
+    user: dict = Depends(get_current_user),
+) -> SubscriptionResponse:
+    """Subscribe to a podcast."""
+    user_id = user.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid user")
+
+    # Check if already subscribed
+    existing = db.get_subscription(user_id, request.podcast_id)
+    if existing:
+        return SubscriptionResponse(**existing)
+
+    data = db.create_subscription(
+        user_id=user_id,
+        podcast_id=request.podcast_id,
+        podcast_title=request.podcast_title,
+        podcast_author=request.podcast_author,
+        artwork_url=request.artwork_url,
+        feed_url=request.feed_url,
+    )
+
+    return SubscriptionResponse(**data)
+
+
+@app.delete("/subscriptions/{podcast_id}", status_code=204)
+async def delete_subscription(
+    podcast_id: int,
+    user: dict = Depends(get_current_user),
+) -> None:
+    """Unsubscribe from a podcast."""
+    user_id = user.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid user")
+
+    deleted = db.delete_subscription(user_id, podcast_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Not subscribed")
+
+
+# --- Saved Episodes endpoints ---
+
+
+@app.get("/saved-episodes")
+async def get_saved_episodes(
+    user: dict = Depends(get_current_user),
+) -> list[SavedEpisodeResponse]:
+    """Get all saved episodes for the current user."""
+    user_id = user.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid user")
+
+    data = db.get_saved_episodes(user_id)
+    return [SavedEpisodeResponse(**item) for item in data]
+
+
+@app.get("/saved-episodes/{episode_guid:path}")
+async def get_saved_episode(
+    episode_guid: str,
+    user: dict = Depends(get_current_user),
+) -> SavedEpisodeResponse:
+    """Check if user has saved an episode."""
+    user_id = user.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid user")
+
+    data = db.get_saved_episode(user_id, episode_guid)
+    if not data:
+        raise HTTPException(status_code=404, detail="Episode not saved")
+    return SavedEpisodeResponse(**data)
+
+
+@app.post("/saved-episodes", status_code=201)
+async def create_saved_episode(
+    request: SavedEpisodeCreate,
+    user: dict = Depends(get_current_user),
+) -> SavedEpisodeResponse:
+    """Save an episode."""
+    user_id = user.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid user")
+
+    # Check if already saved
+    existing = db.get_saved_episode(user_id, request.episode_guid)
+    if existing:
+        return SavedEpisodeResponse(**existing)
+
+    data = db.create_saved_episode(
+        user_id=user_id,
+        podcast_id=request.podcast_id,
+        episode_guid=request.episode_guid,
+        episode_title=request.episode_title,
+        podcast_title=request.podcast_title,
+        artwork_url=request.artwork_url,
+        audio_url=request.audio_url,
+        pub_date=request.pub_date.isoformat() if request.pub_date else None,
+        duration_seconds=request.duration_seconds,
+    )
+
+    return SavedEpisodeResponse(**data)
+
+
+@app.delete("/saved-episodes/{episode_guid:path}", status_code=204)
+async def delete_saved_episode(
+    episode_guid: str,
+    user: dict = Depends(get_current_user),
+) -> None:
+    """Remove a saved episode."""
+    user_id = user.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid user")
+
+    deleted = db.delete_saved_episode(user_id, episode_guid)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Episode not saved")
+
+
+# --- Transcripts list endpoint ---
+
+
+@app.get("/transcripts")
+async def list_transcripts() -> list[TranscriptListItem]:
+    """Get all completed transcripts in the system."""
+    data = db.get_all_transcripts()
+    return [TranscriptListItem(**item) for item in data]
 
 
 def main() -> None:

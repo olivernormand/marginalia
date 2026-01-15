@@ -133,6 +133,68 @@ export interface AnnotationCreate {
   start_ms: number;
 }
 
+// --- Subscription types ---
+
+export interface Subscription {
+  id: string;
+  user_id: string;
+  podcast_id: number;
+  podcast_title: string;
+  podcast_author: string | null;
+  artwork_url: string | null;
+  feed_url: string;
+  created_at: string;
+}
+
+export interface SubscriptionCreate {
+  podcast_id: number;
+  podcast_title: string;
+  feed_url: string;
+  podcast_author?: string | null;
+  artwork_url?: string | null;
+}
+
+// --- Saved Episode types ---
+
+export interface SavedEpisode {
+  id: string;
+  user_id: string;
+  podcast_id: number;
+  episode_guid: string;
+  episode_title: string;
+  podcast_title: string | null;
+  artwork_url: string | null;
+  audio_url: string | null;
+  pub_date: string | null;
+  duration_seconds: number | null;
+  created_at: string;
+}
+
+export interface SavedEpisodeCreate {
+  podcast_id: number;
+  episode_guid: string;
+  episode_title: string;
+  podcast_title?: string | null;
+  artwork_url?: string | null;
+  audio_url?: string | null;
+  pub_date?: string | null;
+  duration_seconds?: number | null;
+}
+
+// --- Transcript list types ---
+
+export interface TranscriptListItem {
+  id: string;
+  episode_guid: string;
+  podcast_id: number;
+  podcast_title: string | null;
+  episode_title: string | null;
+  audio_duration: number | null; // AssemblyAI duration in milliseconds (less reliable)
+  episode_duration_seconds: number | null; // RSS feed duration in seconds (preferred)
+  completed_at: string | null;
+  artwork_url: string | null;
+}
+
 // Helper to group words into utterances, split by paragraph boundaries
 export function getUtterances(
   words: TranscriptWord[],

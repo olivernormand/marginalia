@@ -1,4 +1,4 @@
-import { Play, Pause } from "lucide-react";
+import { Play, Pause, Bookmark } from "lucide-react";
 import { PodcastEpisode } from "@/lib/types";
 
 interface EpisodeCardProps {
@@ -9,6 +9,8 @@ interface EpisodeCardProps {
   onPlay?: (episode: PodcastEpisode) => void;
   onEpisodeClick?: (episode: PodcastEpisode) => void;
   podcastArtwork?: string | null;
+  isSaved?: boolean;
+  onSaveToggle?: (episode: PodcastEpisode) => void;
 }
 
 function formatDuration(seconds: number | null): string {
@@ -58,11 +60,20 @@ export default function EpisodeCard({
   onPlay,
   onEpisodeClick,
   podcastArtwork,
+  isSaved = false,
+  onSaveToggle,
 }: EpisodeCardProps) {
   const handlePlayClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (onPlay && episode.audio_url) {
       onPlay(episode);
+    }
+  };
+
+  const handleSaveClick = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (onSaveToggle) {
+      onSaveToggle(episode);
     }
   };
 
@@ -115,23 +126,38 @@ export default function EpisodeCard({
           )}
         </div>
       </div>
-      {episode.audio_url && (
-        <button
-          className={`flex-shrink-0 w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
-            isCurrentEpisode && isPlaying
-              ? "bg-gray-900 text-white"
-              : "bg-gray-100 group-hover:bg-gray-200 text-gray-600"
-          }`}
-          title={isPlaying && isCurrentEpisode ? "Pause episode" : "Play episode"}
-          onClick={handlePlayClick}
-        >
-          {isCurrentEpisode && isPlaying ? (
-            <Pause size={16} />
-          ) : (
-            <Play size={16} className="ml-0.5" />
-          )}
-        </button>
-      )}
+      <div className="flex items-center gap-2 flex-shrink-0">
+        {onSaveToggle && (
+          <button
+            className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+              isSaved
+                ? "bg-gray-900 text-white"
+                : "bg-gray-100 group-hover:bg-gray-200 text-gray-600"
+            }`}
+            title={isSaved ? "Remove from library" : "Save to library"}
+            onClick={handleSaveClick}
+          >
+            <Bookmark size={16} className={isSaved ? "fill-current" : ""} />
+          </button>
+        )}
+        {episode.audio_url && (
+          <button
+            className={`w-10 h-10 rounded-full flex items-center justify-center transition-colors ${
+              isCurrentEpisode && isPlaying
+                ? "bg-gray-900 text-white"
+                : "bg-gray-100 group-hover:bg-gray-200 text-gray-600"
+            }`}
+            title={isPlaying && isCurrentEpisode ? "Pause episode" : "Play episode"}
+            onClick={handlePlayClick}
+          >
+            {isCurrentEpisode && isPlaying ? (
+              <Pause size={16} />
+            ) : (
+              <Play size={16} className="ml-0.5" />
+            )}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -87,6 +87,8 @@ class TranscribeRequest(BaseModel):
     podcast_description: str | None = None
     episode_title: str | None = None
     episode_description: str | None = None
+    artwork_url: str | None = None
+    episode_duration_seconds: int | None = None
 
 
 class TranscriptionJobResponse(BaseModel):
@@ -260,3 +262,78 @@ class AnnotationResponse(BaseModel):
     last_synced_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+# --- Subscription models ---
+
+
+class SubscriptionCreate(BaseModel):
+    """Request to subscribe to a podcast."""
+
+    podcast_id: int
+    podcast_title: str
+    feed_url: str
+    podcast_author: str | None = None
+    artwork_url: str | None = None
+
+
+class SubscriptionResponse(BaseModel):
+    """Response for a subscription."""
+
+    id: str
+    user_id: str
+    podcast_id: int
+    podcast_title: str
+    podcast_author: str | None = None
+    artwork_url: str | None = None
+    feed_url: str
+    created_at: datetime
+
+
+# --- Saved Episode models ---
+
+
+class SavedEpisodeCreate(BaseModel):
+    """Request to save an episode."""
+
+    podcast_id: int
+    episode_guid: str
+    episode_title: str
+    podcast_title: str | None = None
+    artwork_url: str | None = None
+    audio_url: str | None = None
+    pub_date: datetime | None = None
+    duration_seconds: int | None = None
+
+
+class SavedEpisodeResponse(BaseModel):
+    """Response for a saved episode."""
+
+    id: str
+    user_id: str
+    podcast_id: int
+    episode_guid: str
+    episode_title: str
+    podcast_title: str | None = None
+    artwork_url: str | None = None
+    audio_url: str | None = None
+    pub_date: datetime | None = None
+    duration_seconds: int | None = None
+    created_at: datetime
+
+
+# --- Transcript list models ---
+
+
+class TranscriptListItem(BaseModel):
+    """A transcript in the list of all transcripts."""
+
+    id: str
+    episode_guid: str
+    podcast_id: int
+    podcast_title: str | None = None
+    episode_title: str | None = None
+    audio_duration: int | None = None  # AssemblyAI duration in milliseconds (less reliable)
+    episode_duration_seconds: int | None = None  # RSS feed duration in seconds (preferred)
+    completed_at: datetime | None = None
+    artwork_url: str | None = None
