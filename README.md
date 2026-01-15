@@ -17,7 +17,7 @@ Marginalia builds towards a seamless experience for listening to podcasts and ca
 
 ## Current Status
 
-**Phases 1–5 are complete.** The app supports:
+**Phases 1–6 are complete.** The app supports:
 - Searching, browsing, and playing podcasts
 - Transcription with speaker diarization and paragraph segmentation
 - LLM-powered content detection (skip intro/outro music, identify speakers)
@@ -25,6 +25,10 @@ Marginalia builds towards a seamless experience for listening to podcasts and ca
 - Audio caching via Cloudflare R2 (ensures transcript-audio alignment)
 - User authentication via Supabase Auth
 - Persistent annotations per-user with Row Level Security
+- App shell with collapsible shadcn/ui sidebar navigation
+- Podcast subscriptions and saved episodes library
+
+**Next up:** Phase 7 (Queue/Worker + Google Auth) to enable auto-transcription and reduce sign-in friction.
 
 **Key implementation differences from spec:**
 - Using **Podcast Index API** instead of Apple Podcasts API (open, free, better metadata)
@@ -581,42 +585,57 @@ The audio caching approach works but has costs (storage). An alternative that av
 - [ ] Deploy frontend to Vercel
 - [ ] Deploy backend to Fly.io
 
-### Phase 6: Speaker Labels & App Navigation
+### Phase 6: Speaker Labels & App Navigation ✅
 **Goal:** Allow users to edit speaker labels and add proper app-wide navigation.
 
 **Debug Claude Speaker Identification:**
-The Claude Haiku analysis for speaker identification and content bounds detection isn't working. Need to investigate and fix.
-
-- [ ] Debug why `analyze_transcript()` returns empty `speaker_labels`
-- [ ] Check Claude API response and structured output parsing
-- [ ] Verify prompt is receiving correct transcript data
-- [ ] Add logging/observability for LLM analysis step
-- [ ] Test with multiple podcasts to identify patterns
-
-**Speaker Label Editing:**
-Users should be able to correct/customize speaker labels in transcripts. Once auto-labeling works, users can refine; if it fails, users can manually label.
-
-- [ ] Add speaker label editor UI in transcript view
-- [ ] Options: custom text input, previously used labels (excluding A/B/C), "Advert" label
-- [ ] Update `speaker_labels_json` in database when user edits
-- [ ] Labels apply globally to transcript (all instances of speaker update)
-- [ ] "Advert" label allows marking ad segments for potential future filtering
+- [x] Debug why `analyze_transcript()` returns empty `speaker_labels`
+- [x] Check Claude API response and structured output parsing
+- [x] Verify prompt is receiving correct transcript data
+- [x] Test with multiple podcasts to identify patterns
 
 **App Navigation with shadcn/ui:**
-Move from page-based navigation to proper app shell with collapsible sidebar.
+- [x] Install shadcn/ui
+- [x] Add shadcn/ui Sidebar component
+- [x] Create persistent header with logo (click to go home)
+- [x] Sidebar navigation: Home, Subscriptions, Library, Transcribed
+- [x] Collapsible sidebar
+- [x] User menu in header
 
-- [ ] Install shadcn/ui (`pnpm dlx shadcn@latest init`)
-- [ ] Add shadcn/ui Sidebar component
-- [ ] Create persistent header with logo (click to go home)
-- [ ] Sidebar navigation:
-  - Home (search)
-  - Subscriptions (followed podcasts)
-  - Library (saved episodes)
-  - Transcribed (episodes with transcripts)
-- [ ] Collapsible sidebar (icons only when collapsed, full width on mobile as drawer)
-- [ ] User menu in header
+**Speaker Label Editing (Deferred):**
+Now that auto-labeling works, manual editing is less critical. Can add later if users request it.
 
-### Phase 7: MCP Server
+### Phase 7: Queue/Worker + Google Auth
+**Goal:** Production-ready infrastructure for background jobs and frictionless authentication.
+
+**Queue/Worker Architecture:**
+
+Current transcription is synchronous (API waits for AssemblyAI). Moving to a queue model:
+1. API creates job in DB with `status=pending`, returns immediately
+2. Worker picks up pending jobs, submits to AssemblyAI, polls for completion
+3. Worker updates DB when done; frontend polls DB for status
+
+Benefits: Fast API responses, automatic retries, scales horizontally, enables auto-transcription.
+
+Implementation: PostgreSQL as queue using `FOR UPDATE SKIP LOCKED` pattern (no new infrastructure).
+
+- [ ] Refactor `transcription_jobs` table for queue pattern
+- [ ] Create worker script that polls for pending jobs
+- [ ] Worker handles AssemblyAI submission + polling + DB updates
+- [ ] API just creates jobs and reads status from DB
+- [ ] Add worker health checks and error handling
+- [ ] Deploy worker as separate process (Railway background worker or similar)
+
+**Google Sign-In:**
+
+Reduce friction with OAuth instead of email/password.
+
+- [ ] Create Google OAuth credentials in Cloud Console
+- [ ] Configure Google provider in Supabase Dashboard
+- [ ] Update frontend login page with Google sign-in button
+- [ ] Test auth flow end-to-end
+
+### Phase 8: MCP Server
 **Goal:** Expose transcripts and annotations via MCP for use in Claude Desktop and other tools.
 
 The insight: rather than building a chat UI (which would duplicate Claude Desktop), expose the data where it's most useful. Users can query their podcast knowledge base from any MCP-enabled client.
@@ -629,20 +648,29 @@ The insight: rather than building a chat UI (which would duplicate Claude Deskto
 - [ ] Package for easy local installation
 - [ ] Test with Claude Desktop
 
-### Phase 8: Subscriptions + Pre-emptive Transcription
-**Goal:** Users subscribe to podcasts; new episodes auto-transcribe.
+### Phase 9: Auto-Transcription + Freemium
+**Goal:** Users subscribe to podcasts; new episodes auto-transcribe. Monetize via Stripe.
 
-- [ ] Podcast subscriptions (users can follow podcasts)
+- [x] Podcast subscriptions (users can follow podcasts)
+- [x] Saved episodes (library)
 - [ ] Background job to poll RSS feeds for new episodes
 - [ ] Queue transcription jobs for subscribed podcasts
 - [ ] Prioritization (most-subscribed podcasts first)
 - [ ] User notification when transcription completes
-- [ ] Cost management:
-  - Free tier: on-demand transcription only
-  - Paid tier: auto-transcription for subscriptions
-  - Or: community pooling (transcribe once, share across subscribers)
 
-### Phase 9: Analytics + Observability
+**Freemium Model:**
+- **Free tier**: Access to community-transcribed episodes only (transcripts shared across all users)
+- **Paid tier** ($X/month): 10 hours/month of on-demand transcription for any episode
+
+**Stripe Integration:**
+- [ ] Create Stripe product + pricing
+- [ ] Link Stripe Customer to Supabase user
+- [ ] Track transcription usage per user (minutes consumed)
+- [ ] Gate transcription requests behind usage limits
+- [ ] Stripe Checkout for subscription signup
+- [ ] Webhook handling for subscription events
+
+### Phase 10: Analytics + Observability
 **Goal:** Understand how people use Marginalia.
 
 Key events to track:
