@@ -670,7 +670,34 @@ The insight: rather than building a chat UI (which would duplicate Claude Deskto
 - [ ] Stripe Checkout for subscription signup
 - [ ] Webhook handling for subscription events
 
-### Phase 10: Analytics + Observability
+### Phase 10: Voice Annotations
+**Goal:** Capture annotations by voice without breaking the listening flow.
+
+User taps microphone → audio pauses → user speaks → STT + Claude parses → confirmation beep → audio resumes.
+
+**Example utterance:**
+> "The section starting 'sugar water' to 'brand value'. My reflection is 'fascinating how they built emotional connection'"
+
+**Claude Haiku extracts (structured output):**
+```json
+{
+  "start_quote": "sugar water",
+  "end_quote": "brand value",
+  "reflection": "fascinating how they built emotional connection"
+}
+```
+
+**Implementation:**
+- [ ] Add microphone button to audio player
+- [ ] Pause playback when recording starts
+- [ ] STT via Web Speech API (browser-native) or Whisper
+- [ ] Send to Claude Haiku: user's spoken text + ±1 min transcript context (with word indices)
+- [ ] Claude extracts exact highlighted text + indices + user's reflection (structured output)
+- [ ] Create annotation from Claude's response
+- [ ] Play confirmation sound, resume playback
+- [ ] Error handling (couldn't identify section, unclear speech)
+
+### Phase 11: Analytics + Observability
 **Goal:** Understand how people use Marginalia.
 
 Key events to track:
@@ -688,7 +715,6 @@ Implementation:
 ### Future Ideas
 - Readwise integration (export annotations)
 - Listening history and resume position
-- Voice note capture (STT for quick annotations)
 - Mobile app / PWA
 - Shared annotations (public highlights from a podcast)
 - Podcast recommendations based on listening patterns
