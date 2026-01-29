@@ -26,7 +26,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        // Invalid refresh token - clear the session and treat as logged out
+        console.warn("Session recovery failed:", error.message);
+        supabase.auth.signOut(); // Clear invalid tokens from storage
+      }
       setSession(session);
       setUser(session?.user ?? null);
       setIsLoading(false);

@@ -1,6 +1,8 @@
 import hashlib
+import logging
 import os
 import time
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 import anthropic
@@ -10,12 +12,17 @@ from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Load .env file from backend directory
 load_dotenv(Path(__file__).parent.parent.parent / ".env")
 
 from backend import database as db
 from backend import storage
 from backend.auth import get_current_user, get_optional_user
+from backend.transcription_worker import TranscriptionWorker
 from backend.models.schemas import (
     AnnotationCreate,
     AnnotationResponse,
@@ -39,10 +46,62 @@ from backend.models.schemas import (
 )
 from backend.rss import parse_rss_feed
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Startup and shutdown logic for the FastAPI app.
+
+    On startup:
+    - Initialize the transcription worker
+    - Recover any orphaned transcription jobs (status=processing/queued)
+
+    On shutdown:
+    - Log shutdown message
+    """
+    global _transcription_worker
+
+    logger.info("Starting Marginalia API...")
+
+    # Initialize the transcription worker
+    _transcription_worker = TranscriptionWorker(
+        assemblyai_api_key=ASSEMBLYAI_API_KEY,
+        on_complete=handle_transcription_complete,
+        on_error=handle_transcription_error,
+        on_status_update=handle_transcription_status_update,
+    )
+    logger.info("Transcription worker initialized")
+
+    # Recover orphaned jobs
+    orphaned_jobs = db.get_processing_transcriptions()
+    if orphaned_jobs:
+        logger.info(f"Found {len(orphaned_jobs)} orphaned transcription jobs, recovering...")
+        for job in orphaned_jobs:
+            metadata = {
+                "podcast_title": job.get("podcast_title"),
+                "podcast_description": job.get("podcast_description"),
+                "episode_title": job.get("episode_title"),
+                "episode_description": job.get("episode_description"),
+            }
+            await _transcription_worker.start_polling(
+                job_id=job["id"],
+                episode_guid=job["episode_guid"],
+                metadata=metadata,
+            )
+        logger.info(f"Recovered {len(orphaned_jobs)} orphaned jobs")
+    else:
+        logger.info("No orphaned transcription jobs found")
+
+    yield  # Server runs here
+
+    # Shutdown
+    logger.info("Shutting down Marginalia API...")
+
+
 app = FastAPI(
     title="Marginalia API",
     description="Backend API for Marginalia podcast app",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # Simple in-memory cache for trending podcasts
@@ -73,6 +132,20 @@ ASSEMBLYAI_BASE_URL = "https://api.assemblyai.com/v2"
 
 # Anthropic API (for transcript analysis)
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+
+# ============================================
+# TRANSCRIPTION WORKER
+# ============================================
+
+# Global worker instance (initialized in lifespan)
+_transcription_worker: TranscriptionWorker | None = None
+
+
+def get_worker() -> TranscriptionWorker:
+    """Get the transcription worker instance."""
+    if _transcription_worker is None:
+        raise RuntimeError("Transcription worker not initialized")
+    return _transcription_worker
 
 
 def get_podcast_index_headers() -> dict[str, str]:
@@ -421,6 +494,58 @@ Note: The automatic diarization sometimes incorrectly splits one person into mul
         )
 
 
+# --- Worker callbacks ---
+
+
+async def handle_transcription_complete(job_id: str, data: dict) -> None:
+    """Callback when a transcription completes in the background worker."""
+    result = data["result"]
+    paragraphs = data["paragraphs"]
+    metadata = data["metadata"]
+
+    logger.info(f"Processing completed transcription {job_id}")
+
+    # Analyze transcript to find content bounds and speaker names
+    analysis = await analyze_transcript(
+        words=result["words"],
+        audio_duration_ms=result["audio_duration"],
+        podcast_title=metadata.get("podcast_title"),
+        podcast_description=metadata.get("podcast_description"),
+        episode_title=metadata.get("episode_title"),
+        episode_description=metadata.get("episode_description"),
+    )
+
+    # Store results in database
+    db.complete_transcription(
+        job_id=job_id,
+        audio_duration=result["audio_duration"],
+        confidence=result["confidence"],
+        words=result["words"],
+        paragraphs=paragraphs,
+        content_start_ms=analysis.content_start_ms,
+        content_end_ms=analysis.content_end_ms,
+        speaker_labels=analysis.to_speaker_labels_dict(),
+    )
+
+    logger.info(f"Transcription {job_id} completed and stored successfully")
+
+
+async def handle_transcription_error(job_id: str, error_message: str) -> None:
+    """Callback when a transcription fails in the background worker."""
+    logger.error(f"Transcription {job_id} failed: {error_message}")
+    db.update_transcription_status(
+        job_id=job_id,
+        status="error",
+        error_message=error_message,
+    )
+
+
+async def handle_transcription_status_update(job_id: str, status: str) -> None:
+    """Callback when transcription status changes (e.g., queued -> processing)."""
+    logger.info(f"Transcription {job_id} status update: {status}")
+    db.update_transcription_status(job_id=job_id, status=status)
+
+
 # --- Transcription endpoints ---
 
 
@@ -429,10 +554,28 @@ async def submit_transcription(request: TranscribeRequest) -> TranscriptionJobRe
     """Submit a transcription job for an episode.
 
     If the episode has already been transcribed or is in progress, returns existing job.
+    Now kicks off a background worker to poll for completion automatically.
     """
+    worker = get_worker()
+
     # Check if already exists
     existing = db.get_transcription_by_episode(request.episode_guid)
     if existing:
+        # If it's processing but not actively being polled, resume polling
+        if existing["status"] in ("processing", "queued") and not worker.is_job_active(existing["id"]):
+            logger.info(f"Resuming polling for existing job {existing['id']}")
+            metadata = {
+                "podcast_title": existing.get("podcast_title"),
+                "podcast_description": existing.get("podcast_description"),
+                "episode_title": existing.get("episode_title"),
+                "episode_description": existing.get("episode_description"),
+            }
+            await worker.start_polling(
+                job_id=existing["id"],
+                episode_guid=existing["episode_guid"],
+                metadata=metadata,
+            )
+
         return TranscriptionJobResponse(
             id=existing["id"],
             episode_guid=existing["episode_guid"],
@@ -497,6 +640,20 @@ async def submit_transcription(request: TranscribeRequest) -> TranscriptionJobRe
         episode_duration_seconds=request.episode_duration_seconds,
     )
 
+    # Start background polling for completion
+    metadata = {
+        "podcast_title": request.podcast_title,
+        "podcast_description": request.podcast_description,
+        "episode_title": request.episode_title,
+        "episode_description": request.episode_description,
+    }
+    await worker.start_polling(
+        job_id=job["id"],
+        episode_guid=request.episode_guid,
+        metadata=metadata,
+    )
+    logger.info(f"Started transcription job {job['id']} for episode {request.episode_guid}")
+
     return TranscriptionJobResponse(
         id=job["id"],
         episode_guid=request.episode_guid,
@@ -504,109 +661,36 @@ async def submit_transcription(request: TranscribeRequest) -> TranscriptionJobRe
     )
 
 
+@app.get("/transcribe/status")
+async def get_transcription_worker_status() -> dict:
+    """Debug endpoint showing transcription worker status.
+
+    Returns the number of active jobs and concurrency limit.
+    """
+    worker = get_worker()
+    return {
+        "active_jobs": worker.active_job_count,
+        "max_concurrent": 3,  # MAX_CONCURRENT_TRANSCRIPTIONS from worker
+    }
+
+
 @app.get("/transcribe/{job_id}")
 async def poll_transcription(job_id: str) -> TranscriptionJobResponse:
     """Poll transcription job status.
 
-    If completed, fetches and stores the full transcript.
+    This is now a simple database lookup - all polling is handled by the
+    background transcription worker. The worker updates the database when
+    transcription completes or fails.
     """
-    # Check database first
     existing = db.get_transcription_by_id(job_id)
     if not existing:
         raise HTTPException(status_code=404, detail="Transcription job not found")
 
-    # If already completed or errored, return from DB
-    if existing["status"] in ("completed", "error"):
-        return TranscriptionJobResponse(
-            id=existing["id"],
-            episode_guid=existing["episode_guid"],
-            status=existing["status"],
-            error_message=existing["error_message"],
-        )
-
-    # Poll AssemblyAI with generous timeout and retry
-    headers = {"authorization": ASSEMBLYAI_API_KEY}
-    timeout = httpx.Timeout(30.0, connect=10.0)  # 30s read, 10s connect
-
-    async with httpx.AsyncClient(timeout=timeout) as client:
-        try:
-            response = await client.get(
-                f"{ASSEMBLYAI_BASE_URL}/transcript/{job_id}",
-                headers=headers,
-            )
-        except httpx.TimeoutException:
-            # Return current status from DB on timeout - don't crash
-            return TranscriptionJobResponse(
-                id=existing["id"],
-                episode_guid=existing["episode_guid"],
-                status=existing["status"],
-                error_message=None,
-            )
-
-        if response.status_code != 200:
-            raise HTTPException(
-                status_code=502,
-                detail="Failed to poll AssemblyAI",
-            )
-
-        result = response.json()
-
-    status = result["status"]
-
-    # Update database based on status
-    if status == "completed":
-        # Fetch paragraphs from AssemblyAI
-        paragraphs = None
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            try:
-                para_response = await client.get(
-                    f"{ASSEMBLYAI_BASE_URL}/transcript/{job_id}/paragraphs",
-                    headers=headers,
-                )
-            except httpx.TimeoutException:
-                para_response = None
-            if para_response and para_response.status_code == 200:
-                para_data = para_response.json()
-                # Store just start, end, text for each paragraph
-                paragraphs = [
-                    {"start": p["start"], "end": p["end"], "text": p["text"]}
-                    for p in para_data.get("paragraphs", [])
-                ]
-
-        # Analyze transcript to find content bounds and speaker names
-        analysis = await analyze_transcript(
-            words=result["words"],
-            audio_duration_ms=result["audio_duration"],
-            podcast_title=existing.get("podcast_title"),
-            podcast_description=existing.get("podcast_description"),
-            episode_title=existing.get("episode_title"),
-            episode_description=existing.get("episode_description"),
-        )
-
-        db.complete_transcription(
-            job_id=job_id,
-            audio_duration=result["audio_duration"],
-            confidence=result["confidence"],
-            words=result["words"],
-            paragraphs=paragraphs,
-            content_start_ms=analysis.content_start_ms,
-            content_end_ms=analysis.content_end_ms,
-            speaker_labels=analysis.to_speaker_labels_dict(),
-        )
-    elif status == "error":
-        db.update_transcription_status(
-            job_id=job_id,
-            status="error",
-            error_message=result.get("error"),
-        )
-    else:
-        db.update_transcription_status(job_id=job_id, status=status)
-
     return TranscriptionJobResponse(
-        id=job_id,
+        id=existing["id"],
         episode_guid=existing["episode_guid"],
-        status=status,
-        error_message=result.get("error"),
+        status=existing["status"],
+        error_message=existing.get("error_message"),
     )
 
 

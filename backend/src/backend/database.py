@@ -438,3 +438,19 @@ def get_all_transcripts() -> list[dict]:
         .execute()
     )
     return result.data or []
+
+
+def get_processing_transcriptions() -> list[dict]:
+    """Get all transcriptions with status 'processing' or 'queued' for recovery.
+
+    Used on server startup to recover orphaned jobs that were being polled
+    when the server was shut down.
+    """
+    supabase = get_supabase()
+    result = (
+        supabase.table("transcriptions")
+        .select("*")
+        .in_("status", ["processing", "queued"])
+        .execute()
+    )
+    return result.data or []

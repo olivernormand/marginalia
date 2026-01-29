@@ -28,7 +28,7 @@ Marginalia builds towards a seamless experience for listening to podcasts and ca
 - App shell with collapsible shadcn/ui sidebar navigation
 - Podcast subscriptions and saved episodes library
 
-**Next up:** Phase 7 (Queue/Worker + Google Auth) to enable auto-transcription and reduce sign-in friction.
+**Next up:** Phase 7 (Queue/Worker) then Phase 8 (Google Sign-In).
 
 **Key implementation differences from spec:**
 - Using **Podcast Index API** instead of Apple Podcasts API (open, free, better metadata)
@@ -605,10 +605,8 @@ The audio caching approach works but has costs (storage). An alternative that av
 **Speaker Label Editing (Deferred):**
 Now that auto-labeling works, manual editing is less critical. Can add later if users request it.
 
-### Phase 7: Queue/Worker + Google Auth
-**Goal:** Production-ready infrastructure for background jobs and frictionless authentication.
-
-**Queue/Worker Architecture:**
+### Phase 7: Queue/Worker Architecture
+**Goal:** Decouple transcription from API requests with a background job queue.
 
 Current transcription is synchronous (API waits for AssemblyAI). Moving to a queue model:
 1. API creates job in DB with `status=pending`, returns immediately
@@ -626,16 +624,15 @@ Implementation: PostgreSQL as queue using `FOR UPDATE SKIP LOCKED` pattern (no n
 - [ ] Add worker health checks and error handling
 - [ ] Deploy worker as separate process (Railway background worker or similar)
 
-**Google Sign-In:**
-
-Reduce friction with OAuth instead of email/password.
+### Phase 8: Google Sign-In
+**Goal:** Reduce sign-in friction with OAuth.
 
 - [ ] Create Google OAuth credentials in Cloud Console
 - [ ] Configure Google provider in Supabase Dashboard
 - [ ] Update frontend login page with Google sign-in button
 - [ ] Test auth flow end-to-end
 
-### Phase 8: MCP Server
+### Phase 9: MCP Server
 **Goal:** Expose transcripts and annotations via MCP for use in Claude Desktop and other tools.
 
 The insight: rather than building a chat UI (which would duplicate Claude Desktop), expose the data where it's most useful. Users can query their podcast knowledge base from any MCP-enabled client.
@@ -648,8 +645,8 @@ The insight: rather than building a chat UI (which would duplicate Claude Deskto
 - [ ] Package for easy local installation
 - [ ] Test with Claude Desktop
 
-### Phase 9: Auto-Transcription + Freemium
-**Goal:** Users subscribe to podcasts; new episodes auto-transcribe. Monetize via Stripe.
+### Phase 10: Auto-Transcription
+**Goal:** Automatically transcribe new episodes from subscribed podcasts.
 
 - [x] Podcast subscriptions (users can follow podcasts)
 - [x] Saved episodes (library)
@@ -658,11 +655,14 @@ The insight: rather than building a chat UI (which would duplicate Claude Deskto
 - [ ] Prioritization (most-subscribed podcasts first)
 - [ ] User notification when transcription completes
 
-**Freemium Model:**
+### Phase 11: Freemium + Stripe
+**Goal:** Monetize with a freemium model.
+
+**Pricing:**
 - **Free tier**: Access to community-transcribed episodes only (transcripts shared across all users)
 - **Paid tier** ($X/month): 10 hours/month of on-demand transcription for any episode
 
-**Stripe Integration:**
+**Implementation:**
 - [ ] Create Stripe product + pricing
 - [ ] Link Stripe Customer to Supabase user
 - [ ] Track transcription usage per user (minutes consumed)
@@ -670,7 +670,7 @@ The insight: rather than building a chat UI (which would duplicate Claude Deskto
 - [ ] Stripe Checkout for subscription signup
 - [ ] Webhook handling for subscription events
 
-### Phase 10: Voice Annotations
+### Phase 12: Voice Annotations
 **Goal:** Capture annotations by voice without breaking the listening flow.
 
 User taps microphone → audio pauses → user speaks → STT + Claude parses → confirmation beep → audio resumes.
@@ -697,7 +697,7 @@ User taps microphone → audio pauses → user speaks → STT + Claude parses �
 - [ ] Play confirmation sound, resume playback
 - [ ] Error handling (couldn't identify section, unclear speech)
 
-### Phase 11: Analytics + Observability
+### Phase 13: Analytics + Observability
 **Goal:** Understand how people use Marginalia.
 
 Key events to track:
